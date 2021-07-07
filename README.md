@@ -89,6 +89,7 @@ These are not supported:
 - `-f=value` for short flags
 - Flags with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
 - Single-dash long flags (like find's `-name`)
+- Abbreviated long flags (GNU tools let you write `--num` instead of `--number` if it can be expanded unambiguously)
 
 ## Unicode
 This library makes an effort to support unicode while accepting arguments that are not valid unicode.
@@ -103,7 +104,7 @@ For a particular application I was looking for a command line parser that:
 - Strictly adheres to the usual shell conventions
 - Supports non-unicode arguments
 
-No single library fit all those requirements, so like any self-respecting yak-shaver I started writing my own.
+I couldn't find a library that fit all those requirements, so like any self-respecting yak-shaver I started writing my own.
 
 ## See also
 - [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only argument parser for Rust I know of that truly handles invalid unicode properly, if configured right.
