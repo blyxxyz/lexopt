@@ -31,12 +31,13 @@ pub struct Parser {
 impl std::fmt::Debug for Parser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Parser")
+            .field("source", &"<iterator>")
             .field("bin_name", &self.bin_name)
             .field("shorts", &self.shorts)
             .field("long", &self.long)
             .field("long_value", &self.long_value)
             .field("finished_opts", &self.finished_opts)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -131,7 +132,7 @@ impl Parser {
                 };
                 // Store the flag so the caller can borrow it.
                 // We go through this trouble because matching an owned string is a pain.
-                let long = self.long.insert(flag);
+                let long = backport::insert(&mut self.long, flag);
                 Ok(Some(Arg::Long(&long[2..])))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
                 self.shorts = Some((arg.into_vec(), 1));
@@ -180,7 +181,7 @@ impl Parser {
                         // Even if the flag is fine and only the value is malformed,
                         // there's no way to separate it into its own OsString.
                         // So we just try to give a reasonable error message.
-                        if let Some((flag, _)) = text.split_once('=') {
+                        if let Some((flag, _)) = backport::split_once(&text) {
                             if flag.contains('\u{FFFD}') {
                                 // Looks like the flag was invalid.
                                 // This means you shouldn't use U+FFFD REPLACEMENT CHARACTER
@@ -202,12 +203,12 @@ impl Parser {
             };
 
             if arg.starts_with("--") {
-                if let Some((flag, value)) = arg.split_once('=') {
-                    let long = &self.long.insert(flag.into())[2..];
+                if let Some((flag, value)) = backport::split_once(&arg) {
+                    let long = &backport::insert(&mut self.long, flag.into())[2..];
                     self.long_value = Some(value.into());
                     Ok(Some(Arg::Long(long)))
                 } else {
-                    let long = &self.long.insert(arg)[2..];
+                    let long = &backport::insert(&mut self.long, arg)[2..];
                     Ok(Some(Arg::Long(long)))
                 }
             } else if arg.len() > 1 && arg.starts_with('-') {
@@ -508,6 +509,25 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
     Ok(text.chars().next())
 }
 
+/// Implementations of a few useful functions that didn't exist
+/// yet in Rust 1.42 (the arbitrarily chosen MSRV).
+///
+/// Not generic but shamelessly specialized for our needs.
+#[allow(dead_code)]
+mod backport {
+    /// [`str::split_once`]
+    pub(super) fn split_once(text: &str) -> Option<(&str, &str)> {
+        let mut iter = text.splitn(2, '=');
+        Some((iter.next()?, iter.next()?))
+    }
+
+    /// [`Option::insert`]
+    pub(super) fn insert(opt: &mut Option<String>, value: String) -> &mut String {
+        *opt = None;
+        opt.get_or_insert(value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::prelude::*;
@@ -549,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_long() -> Result<(), Error> {
-        let mut p = parse("--foo --bar=qux --foobar=quxbaz");
+        let mut p = parse("--foo --bar=qux --foobar=qux=baz");
         assert_eq!(p.next()?.unwrap(), Long("foo"));
         assert_eq!(p.next()?.unwrap(), Long("bar"));
         assert_eq!(p.value()?, "qux");
@@ -557,7 +577,7 @@ mod tests {
         match p.next().unwrap_err() {
             Error::UnexpectedValue(Some(flag), value) => {
                 assert_eq!(flag, "--foobar");
-                assert_eq!(value, "quxbaz");
+                assert_eq!(value, "qux=baz");
             }
             _ => panic!(),
         }
