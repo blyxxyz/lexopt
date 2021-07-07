@@ -2,7 +2,7 @@
 name = "optic"
 version = "0.1.0"
 authors = ["Jan Verbeek <jan.verbeek@posteo.nl>"]
-description = "Minimalist imperative command line parser"
+description = "Minimalist pedantic command line parser"
 keywords = ["args", "arguments", "cli", "parser"]
 categories = ["command-line-interface"]
 edition = "2018"

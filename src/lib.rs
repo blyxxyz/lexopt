@@ -1,4 +1,7 @@
 //! Experimental imperative argument parsing library.
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+#![allow(clippy::should_implement_trait)]
 
 use std::{
     ffi::{OsStr, OsString},
@@ -20,20 +23,25 @@ pub struct Parser {
     long: Option<String>,
     // The pending value for the last long flag
     long_value: Option<OsString>,
-    // Data about the last flag we looked at, for error messages
-    last_flag: LastFlag,
     // Whether we encountered "--" and know no more flags are coming
     finished_opts: bool,
 }
 
-enum LastFlag {
-    None,
-    Short(char),
-    Long,
+// source may not implement Debug
+impl std::fmt::Debug for Parser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Parser")
+            .field("bin_name", &self.bin_name)
+            .field("shorts", &self.shorts)
+            .field("long", &self.long)
+            .field("long_value", &self.long_value)
+            .field("finished_opts", &self.finished_opts)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A command line argument, either a flag or a free-standing value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg<'a> {
     /// A short flag, e.g. `-q`.
     Short(char),
@@ -46,33 +54,36 @@ pub enum Arg<'a> {
 impl Parser {
     /// Get the next flag or free-standing argument.
     ///
-    /// This will return an [`Error::UnexpectedValue`] if the last flag had an
-    /// associated value that hasn't been consumed, as in `--flag=value`.
+    /// This will return an [`Error::UnexpectedValue`] if the last flag had a
+    /// value that hasn't been consumed, as in `--flag=value`.
     ///
     /// It will also return an error for flags that are not valid unicode.
     ///
-    /// It will return `None` if the command line has been exhausted.
-    // TODO: pick other name or add clippy lint ignore
+    /// It will return `Ok(None)` if the command line has been exhausted.
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
-            return Err(Error::UnexpectedValue(value));
+            return Err(Error::UnexpectedValue(self.long.take(), value));
         }
 
         if let Some((ref arg, ref mut pos)) = self.shorts {
             // We're somewhere inside a -abc chain. Because we're in .next(),
             // not .value(), we can assume that the next character is another flag.
-            match take_char(&arg, pos)? {
-                None => {
+            match first_codepoint(&arg[*pos..]) {
+                Ok(None) => {
                     self.shorts = None;
                 }
                 // If we find '=' here we assume it's part of a flag.
-                // Perversely, `-=` as a flag exists in the wild!
+                // Another option would be to see it as a value separator.
+                // `-=` as a flag exists in the wild!
                 // See https://linux.die.net/man/1/a2ps
-                // This means -n=10 can have two meanings (but so can -n10).
-                Some(ch) => {
-                    self.last_flag = LastFlag::Short(ch);
+                Ok(Some(ch)) => {
+                    *pos += ch.len_utf8();
                     return Ok(Some(Arg::Short(ch)));
+                }
+                Err(err) => {
+                    *pos += 1; // This may allow recovery
+                    return Err(err);
                 }
             }
         }
@@ -90,61 +101,83 @@ impl Parser {
             return self.next();
         }
 
-        let arg = match arg.into_string() {
-            Ok(arg) => arg,
-            Err(arg) => {
-                // Here's where it gets tricky.
-                // The argument is not valid unicode. If it's a free-standing
-                // value then that's fine. But if it starts with a - then we
-                // have to treat it like a flag.
-                // OsString is very limited. What we do next depends on the platform.
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            // Fast solution for platforms where OsStrings are just bytes
+            #[cfg(unix)]
+            use std::os::unix::ffi::{OsStrExt, OsStringExt};
+            #[cfg(target_os = "wasi")]
+            use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 
-                #[cfg(unix)]
-                {
-                    // Unix lets us turn OsStrings into bytes and back.
-                    use std::os::unix::ffi::{OsStrExt, OsStringExt};
-
-                    let bytes = arg.as_bytes();
-                    if bytes.get(0) == Some(&b'-') {
-                        if bytes.get(1) == Some(&b'-') {
-                            // Long flag
-                            if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
-                                // Long flag with value
-                                if let Ok(flag) = String::from_utf8(bytes[2..ind].into()) {
-                                    // The flag is valid unicode, only the value is messed up
-                                    // We can handle that
-                                    let long = self.long.insert(flag);
-                                    self.last_flag = LastFlag::Long;
-                                    self.long_value =
-                                        Some(OsString::from_vec(bytes[ind + 1..].into()));
-                                    return Ok(Some(Arg::Long(long)));
-                                } else {
-                                    // Even the flag is invalid, so error out
-                                    return Err(Error::UnexpectedFlag(
-                                        String::from_utf8_lossy(&bytes[..ind]).into(),
-                                    ));
-                                }
-                            } else {
-                                // There's no value, so the flag must be invalid
-                                return Err(Error::UnexpectedFlag(
-                                    String::from_utf8_lossy(bytes).into(),
-                                ));
-                            }
-                        } else {
-                            // Short flag
-                            self.shorts = Some((arg.into_vec(), 1));
-                            return self.next();
+            let bytes = arg.as_bytes();
+            if bytes.starts_with(b"--") {
+                let flag = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
+                    self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
+                    match String::from_utf8(bytes[..ind].into()) {
+                        Ok(flag) => flag,
+                        Err(_) => {
+                            return Err(Error::UnexpectedFlag(
+                                String::from_utf8_lossy(&bytes[..ind]).into(),
+                            ))
                         }
                     }
-                }
+                } else {
+                    match arg.into_string() {
+                        Ok(arg) => arg,
+                        Err(arg) => {
+                            return Err(Error::UnexpectedFlag(arg.to_string_lossy().into()))
+                        }
+                    }
+                };
+                // Store the flag so the caller can borrow it.
+                // We go through this trouble because matching an owned string is a pain.
+                let long = self.long.insert(flag);
+                Ok(Some(Arg::Long(&long[2..])))
+            } else if bytes.len() > 1 && bytes[0] == b'-' {
+                self.shorts = Some((arg.into_vec(), 1));
+                self.next()
+            } else {
+                Ok(Some(Arg::Value(arg)))
+            }
+        }
 
-                #[cfg(not(unix))]
-                {
-                    // Allocates for all non-unicode arguments, sadly
+        #[cfg(not(any(unix, target_os = "wasi")))]
+        {
+            // Platforms where looking inside an OsString is harder
+
+            #[cfg(windows)]
+            {
+                // Checking for dashes is doable on Windows.
+                // A fully correct implementation is possible but I don't
+                // understand UTF-16 well enough to attempt it.
+                use std::os::windows::ffi::OsStrExt;
+                let mut bytes = arg.encode_wide();
+                const DASH: u16 = b'-' as u16;
+                match (bytes.next(), bytes.next()) {
+                    (Some(DASH), Some(_)) => {
+                        // This is a flag, we'll have to do more work.
+                        // (We already checked for "--" earlier.)
+                    }
+                    _ => {
+                        // Just a value, return early.
+                        return Ok(Some(Arg::Value(arg)));
+                    }
+                }
+            }
+
+            let arg = match arg.into_string() {
+                Ok(arg) => arg,
+                Err(arg) => {
+                    // Here's where it gets tricky.
+                    // The argument is not valid unicode. If it's a free-standing
+                    // value then that's fine. But if it starts with a - then we
+                    // have to treat it like a flag.
+
+                    // This allocates, sadly.
                     let text = arg.to_string_lossy();
                     if text.starts_with('-') {
                         // At this point it's game over.
-                        // Even if we have a valid flag with malformed value,
+                        // Even if the flag is fine and only the value is malformed,
                         // there's no way to separate it into its own OsString.
                         // So we just try to give a reasonable error message.
                         if let Some((flag, _)) = text.split_once('=') {
@@ -162,48 +195,26 @@ impl Parser {
                             return Err(Error::UnexpectedFlag(text.into()));
                         }
                     }
+
+                    // It didn't look like a flag, so return it as a value.
+                    return Ok(Some(Arg::Value(arg)));
                 }
+            };
 
-                // Apparently it didn't look like a flag, so return it as a value.
-                return Ok(Some(Arg::Value(arg)));
-            }
-        };
-
-        if arg.starts_with("--") {
-            // Store the flag so the caller can borrow it.
-            // We go through this trouble because matching an owned string is a pain.
-            let arg = &self.long.insert(arg)[2..];
-            self.last_flag = LastFlag::Long;
-            if let Some((flag, value)) = arg.split_once('=') {
-                self.long_value = Some(value.into());
-                return Ok(Some(Arg::Long(flag)));
-            } else {
-                return Ok(Some(Arg::Long(arg)));
-            }
-        }
-
-        if arg.len() > 1 && arg.starts_with('-') {
-            self.shorts = Some((arg.into(), 1));
-            return self.next();
-        }
-
-        Ok(Some(Arg::Value(arg.into())))
-    }
-
-    /// Reconstruct the last flag we parsed.
-    fn last_flag(&self) -> Option<String> {
-        match self.last_flag {
-            LastFlag::None => None,
-            LastFlag::Short(ch) => Some(format!("-{}", ch)),
-            LastFlag::Long => {
-                // In principle self.long should always be filled, but avoid
-                // unwrap just in case
-                let long = self.long.as_ref()?;
-                if let Some((flag, _)) = long.split_once('=') {
-                    Some(flag.into())
+            if arg.starts_with("--") {
+                if let Some((flag, value)) = arg.split_once('=') {
+                    let long = &self.long.insert(flag.into())[2..];
+                    self.long_value = Some(value.into());
+                    Ok(Some(Arg::Long(long)))
                 } else {
-                    Some(long.into())
+                    let long = &self.long.insert(arg)[2..];
+                    Ok(Some(Arg::Long(long)))
                 }
+            } else if arg.len() > 1 && arg.starts_with('-') {
+                self.shorts = Some((arg.into(), 1));
+                self.next()
+            } else {
+                Ok(Some(Arg::Value(arg.into())))
             }
         }
     }
@@ -219,60 +230,46 @@ impl Parser {
     /// A value is collected even if it looks like a flag
     /// (i.e., starts with `-`).
     pub fn value(&mut self) -> Result<OsString, Error> {
-        self.value_immediate()
-            .or_else(|| self.source.next())
-            .ok_or_else(|| Error::MissingValue(self.last_flag()))
-    }
-
-    /// Get a value directly connected to a flag, if it exists.
-    ///
-    /// This returns `Some("value")` for `-fvalue`, `-f=value`, and
-    /// `--flag=value`.
-    ///
-    /// It returns `None` for `-f value` and `--flag value`.
-    ///
-    /// This can be used to emulate GNU sed's `-i[SUFFIX]` flag, which only
-    /// optionally takes a value. Using it for new APIs is not recommended as
-    /// the behavior can be confusing.
-    pub fn value_immediate(&mut self) -> Option<OsString> {
         if let Some(value) = self.long_value.take() {
-            return Some(value);
+            return Ok(value);
         }
 
-        if let Some((arg, mut pos)) = self.shorts.take() {
+        if let Some((arg, pos)) = self.shorts.take() {
             if pos < arg.len() {
-                // We recognize the `=` even for short flags.
-                // This means that -n"$var" is not strictly safe if $var
-                // starts with an =. Use -n "$var" or -n="$var" instead.
-                // TODO: do we really want this?
-                if arg[pos] == b'=' {
-                    pos += 1;
-                }
-                #[cfg(unix)]
+                #[cfg(any(unix, target_os = "wasi"))]
                 {
+                    #[cfg(unix)]
                     use std::os::unix::ffi::OsStringExt;
-                    return Some(OsString::from_vec(arg[pos..].into()));
+                    #[cfg(target_os = "wasi")]
+                    use std::os::wasi::ffi::OsStringExt;
+                    return Ok(OsString::from_vec(arg[pos..].into()));
                 }
-                #[cfg(not(unix))]
+                #[cfg(not(any(unix, target_os = "wasi")))]
                 {
-                    return Some(String::from_utf8(arg[pos..].into()).unwrap().into());
+                    let arg = String::from_utf8(arg[pos..].into())
+                        .expect("short flag args on non-unix must be unicode");
+                    return Ok(arg.into());
                 }
             }
         }
 
-        None
+        if let Some(value) = self.source.next() {
+            return Ok(value);
+        }
+
+        Err(Error::MissingValue)
     }
 
     /// Create a parser from the environment using [`std::env::args_os`].
     pub fn from_env() -> Parser {
         let mut source = std::env::args_os();
+        let bin_name = source.next();
         Parser {
-            bin_name: source.next(),
             source: Box::new(source),
+            bin_name,
             shorts: None,
             long: None,
             long_value: None,
-            last_flag: LastFlag::None,
             finished_opts: false,
         }
     }
@@ -291,7 +288,6 @@ impl Parser {
             shorts: None,
             long: None,
             long_value: None,
-            last_flag: LastFlag::None,
             finished_opts: false,
         }
     }
@@ -310,29 +306,28 @@ impl Arg<'_> {
         match self {
             Arg::Short(short) => Error::UnexpectedFlag(format!("-{}", short)),
             Arg::Long(long) => Error::UnexpectedFlag(format!("--{}", long)),
-            Arg::Value(value) => Error::UnexpectedValue(value),
+            Arg::Value(value) => Error::UnexpectedArgument(value),
         }
     }
 }
 
 /// An error during argument parsing.
 #[non_exhaustive]
-#[derive(Clone)]
 pub enum Error {
     /// An option argument was expected but was not found.
-    MissingValue(Option<String>),
+    MissingValue,
 
     /// An unexpected flag was found.
     UnexpectedFlag(String),
 
     /// A free-standing argument was found when none was expected.
-    UnexpectedValue(OsString),
+    UnexpectedArgument(OsString),
 
-    /// Parsing a value failed. Returned by some methods on [`ValueExt`].
-    // TODO: it would be really nice to include the flag here.
-    // But we don't have access to the parser.
-    // Replace OsString by type with extra data?
-    ParsingFailed(String),
+    /// A flag had a value when none was expected.
+    UnexpectedValue(Option<String>, OsString),
+
+    /// Parsing a value failed. Returned by [`ValueExt::parse`].
+    ParsingFailed(String, Box<dyn std::error::Error + Send + Sync + 'static>),
 
     /// A value was found that was not valid unicode.
     ///
@@ -345,23 +340,25 @@ pub enum Error {
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
-    Custom(String),
+    Custom(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Error::*;
         match self {
-            // TODO: it would be nice to be able to say which option
-            // (but it's always the last one in the command)
-            // perhaps .next() can set a field?
-            MissingValue(Some(flag)) => write!(f, "missing argument for option '{}'", flag),
-            MissingValue(None) => write!(f, "missing argument"),
+            MissingValue => write!(f, "missing argument at end of command"),
             UnexpectedFlag(flag) => write!(f, "invalid option '{}'", flag),
-            UnexpectedValue(value) => write!(f, "unexpected argument {:?}", value),
+            UnexpectedArgument(value) => write!(f, "unexpected argument {:?}", value),
+            UnexpectedValue(Some(flag), value) => {
+                write!(f, "unexpected argument for option '{}': {:?}", flag, value)
+            }
+            UnexpectedValue(None, value) => {
+                write!(f, "unexpected argument for option: {:?}", value)
+            }
             NonUnicodeValue(value) => write!(f, "argument is invalid unicode: {:?}", value),
-            ParsingFailed(err) => write!(f, "cannot parse argument: {}", err),
-            Custom(msg) => write!(f, "{}", msg),
+            ParsingFailed(arg, err) => write!(f, "cannot parse argument {:?}: {}", arg, err),
+            Custom(err) => write!(f, "{}", err),
         }
     }
 }
@@ -373,7 +370,33 @@ impl std::fmt::Debug for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::ParsingFailed(_, err) | Error::Custom(err) => Some(err.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl From<String> for Error {
+    fn from(msg: String) -> Self {
+        Error::Custom(msg.into())
+    }
+}
+
+impl From<&'_ str> for Error {
+    fn from(msg: &'_ str) -> Self {
+        Error::Custom(msg.into())
+    }
+}
+
+/// For [`OsString::into_string`].
+impl From<OsString> for Error {
+    fn from(arg: OsString) -> Self {
+        Error::NonUnicodeValue(arg)
+    }
+}
 
 mod private {
     pub trait Sealed {}
@@ -390,33 +413,44 @@ mod private {
 /// - The value cannot be parsed
 pub trait ValueExt: private::Sealed {
     /// Decode the value and parse it using [`FromStr`].
+    ///
+    /// This will fail if the value is not valid unicode or if the subsequent
+    /// parsing fails.
     fn parse<T: FromStr>(&self) -> Result<T, Error>
     where
-        T::Err: Display;
+        T::Err: Into<Box<dyn std::error::Error + Send + Sync + 'static>>;
 
     /// Decode the value and parse it using a custom function.
     fn parse_with<F, T, E>(&self, func: F) -> Result<T, Error>
     where
         F: FnOnce(&str) -> Result<T, E>,
-        E: Display;
+        E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>;
 
-    /// Process the value as an [`OsStr`] using a custom function.
-    fn parse_os_with<F, T, E>(&self, func: F) -> Result<T, Error>
-    where
-        F: FnOnce(&OsStr) -> Result<T, E>,
-        E: Display;
+    // There is no parse_os_with() because I can't think of any useful
+    // fallible operations on an OsString. Typically you'd either decode it,
+    // use it as is, or do an infallible conversion to a PathBuf or such.
+    //
+    // If you have a use for parse_os_with() please open an issue with an
+    // example.
 
     /// Decode the value into a [`String`].
     ///
     /// This is identical to [`OsString::into_string`] except for the
-    /// error type.
+    /// error type and the shorter name.
+    ///
+    /// `From<OsString>` is implemented for [`Error`], so you can write
+    /// `.into_string()?` if you prefer.
     fn string(self) -> Result<String, Error>;
+
+    // TODO:
+    // str()?
+    // or maybe remove string()?
 }
 
 impl ValueExt for OsString {
     fn parse<T: FromStr>(&self) -> Result<T, Error>
     where
-        T::Err: Display,
+        T::Err: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
     {
         self.parse_with(FromStr::from_str)
     }
@@ -424,34 +458,26 @@ impl ValueExt for OsString {
     fn parse_with<F, T, E>(&self, func: F) -> Result<T, Error>
     where
         F: FnOnce(&str) -> Result<T, E>,
-        E: Display,
+        E: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
     {
         match self.to_str() {
             Some(text) => match func(text) {
                 Ok(value) => Ok(value),
-                Err(err) => Err(Error::ParsingFailed(err.to_string())),
+                Err(err) => Err(Error::ParsingFailed(text.to_owned(), err.into())),
             },
             None => Err(Error::NonUnicodeValue(self.into())),
         }
     }
 
-    fn parse_os_with<F, T, E>(&self, func: F) -> Result<T, Error>
-    where
-        F: FnOnce(&OsStr) -> Result<T, E>,
-        E: Display,
-    {
-        match func(&self) {
-            Ok(value) => Ok(value),
-            Err(err) => Err(Error::ParsingFailed(err.to_string())),
-        }
-    }
-
     fn string(self) -> Result<String, Error> {
-        self.into_string().map_err(Error::NonUnicodeValue)
+        Ok(self.into_string()?)
     }
 }
 
-/// A small prelude for the most common functionality.
+/// A small prelude for processing arguments.
+///
+/// It allows you to write `Short`/`Long`/`Value` without an [`Arg`] prefix
+/// and adds convenience methods to [`OsString`].
 ///
 /// If this is used it's best to import it inside a function, not in module
 /// scope. For example:
@@ -463,42 +489,206 @@ impl ValueExt for OsString {
 /// ```
 pub mod prelude {
     pub use super::Arg::*;
-    pub use super::Error;
-    pub use super::Parser;
     pub use super::ValueExt;
 }
 
-/// Try to take a codepoint from the start of `bytes` and advance `pos`.
+/// Take the first codepoint of a bytestring.
 ///
-/// `pos` will be advanced even if an error is returned, to allow recovery.
-fn take_char(bytes: &[u8], pos: &mut usize) -> Result<Option<char>, Error> {
-    match partial_decode(&bytes[*pos..]) {
-        Some(text) => match text.chars().next() {
-            None => Ok(None),
-            Some(ch) => {
-                *pos += ch.len_utf8();
-                Ok(Some(ch))
-            }
-        },
-        None => {
-            let byte = bytes[*pos];
-            *pos += 1;
-            Err(Error::UnexpectedFlag(format!("-\\x{:02x}", byte)))
+/// The rest of the bytestring does not have to be valid unicode.
+fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
+    // We only need the first 4 bytes
+    let bytes = &bytes[..bytes.len().min(4)];
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(err) if err.valid_up_to() > 0 => {
+            std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap()
         }
-    }
+        Err(_) => return Err(Error::UnexpectedFlag(format!("-\\x{:02x}", bytes[0]))),
+    };
+    Ok(text.chars().next())
 }
 
-/// Decode at least one codepoint of the start of a string.
-///
-/// Returns None if decoding fails and Some("") if the string is empty.
-fn partial_decode(bytes: &[u8]) -> Option<&str> {
-    // We only need the first char, which must be in the first 4 bytes
-    let bytes = &bytes[..bytes.len().min(4)];
-    match std::str::from_utf8(bytes) {
-        Ok(text) => Some(text),
-        Err(err) if err.valid_up_to() > 0 => {
-            Some(std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap())
+#[cfg(test)]
+mod tests {
+    use super::prelude::*;
+    use super::*;
+
+    fn parse(args: &'static str) -> Parser {
+        Parser::from_args(args.split_ascii_whitespace().map(bad_string))
+    }
+
+    #[test]
+    fn test_basic() -> Result<(), Error> {
+        let mut p = parse("-n 10 foo - -- baz -qux");
+        assert_eq!(p.next()?.unwrap(), Short('n'));
+        assert_eq!(p.value()?.parse::<i32>()?, 10);
+        assert_eq!(p.next()?.unwrap(), Value("foo".into()));
+        assert_eq!(p.next()?.unwrap(), Value("-".into()));
+        assert_eq!(p.next()?.unwrap(), Value("baz".into()));
+        assert_eq!(p.next()?.unwrap(), Value("-qux".into()));
+        assert_eq!(p.next()?, None);
+        assert_eq!(p.next()?, None);
+        assert_eq!(p.next()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_combined() -> Result<(), Error> {
+        let mut p = parse("-abc -fvalue -xfvalue");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('b'));
+        assert_eq!(p.next()?.unwrap(), Short('c'));
+        assert_eq!(p.next()?.unwrap(), Short('f'));
+        assert_eq!(p.value()?, "value");
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.next()?.unwrap(), Short('f'));
+        assert_eq!(p.value()?, "value");
+        assert_eq!(p.next()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_long() -> Result<(), Error> {
+        let mut p = parse("--foo --bar=qux --foobar=quxbaz");
+        assert_eq!(p.next()?.unwrap(), Long("foo"));
+        assert_eq!(p.next()?.unwrap(), Long("bar"));
+        assert_eq!(p.value()?, "qux");
+        assert_eq!(p.next()?.unwrap(), Long("foobar"));
+        match p.next().unwrap_err() {
+            Error::UnexpectedValue(Some(flag), value) => {
+                assert_eq!(flag, "--foobar");
+                assert_eq!(value, "quxbaz");
+            }
+            _ => panic!(),
         }
-        Err(_) => None,
+        assert_eq!(p.next()?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_unicode() -> Result<(), Error> {
+        let mut p = parse("-aµ --µ=10 µ --foo=µ");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('µ'));
+        assert_eq!(p.next()?.unwrap(), Long("µ"));
+        assert_eq!(p.value()?, "10");
+        assert_eq!(p.next()?.unwrap(), Value("µ".into()));
+        assert_eq!(p.next()?.unwrap(), Long("foo"));
+        assert_eq!(p.value()?, "µ");
+        Ok(())
+    }
+
+    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[test]
+    fn test_mixed_invalid() -> Result<(), Error> {
+        let mut p = parse("--foo=@@@");
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            assert_eq!(p.next()?.unwrap(), Long("foo"));
+            assert_eq!(p.value()?, bad_string("@@@"));
+        }
+        #[cfg(windows)]
+        {
+            match p.next().unwrap_err() {
+                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("--foo=@@@")),
+                _ => panic!(),
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[test]
+    fn test_separate_invalid() -> Result<(), Error> {
+        let mut p = parse("--foo @@@");
+        assert_eq!(p.next()?.unwrap(), Long("foo"));
+        assert_eq!(p.value()?, bad_string("@@@"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_value_ext() -> Result<(), Error> {
+        let s = OsString::from("-10");
+        assert_eq!(s.parse::<i32>()?, -10);
+        assert_eq!(
+            s.parse_with(|s| match s {
+                "-10" => Ok(0),
+                _ => Err("bad"),
+            })?,
+            0,
+        );
+        match s.parse::<u32>() {
+            Err(Error::ParsingFailed(text, _)) => assert_eq!(text, "-10"),
+            _ => panic!(),
+        }
+        match s.parse_with(|s| match s {
+            "11" => Ok(0_i32),
+            _ => Err("bad"),
+        }) {
+            Err(Error::ParsingFailed(text, _)) => assert_eq!(text, "-10"),
+            _ => panic!(),
+        }
+        assert_eq!(s.string()?, "-10");
+        Ok(())
+    }
+
+    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[test]
+    fn test_value_ext_invalid() -> Result<(), Error> {
+        let s = bad_string("foo@");
+        assert!(matches!(s.parse::<i32>(), Err(Error::NonUnicodeValue(_))));
+        assert!(matches!(
+            s.parse_with(<f32 as FromStr>::from_str),
+            Err(Error::NonUnicodeValue(_))
+        ));
+        assert!(matches!(s.string(), Err(Error::NonUnicodeValue(_))));
+        Ok(())
+    }
+
+    #[test]
+    fn test_first_codepoint() {
+        assert_eq!(first_codepoint(b"foo").unwrap(), Some('f'));
+        assert_eq!(first_codepoint(b"").unwrap(), None);
+        assert_eq!(first_codepoint(b"f\xFF\xFF").unwrap(), Some('f'));
+        assert_eq!(first_codepoint(b"\xC2\xB5bar").unwrap(), Some('µ'));
+        first_codepoint(b"\xFF").unwrap_err();
+        assert_eq!(first_codepoint(b"foo\xC2\xB5").unwrap(), Some('f'));
+    }
+
+    /// Transform @ characters into invalid unicode.
+    fn bad_string(text: &str) -> OsString {
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let mut text = text.as_bytes().to_vec();
+            for ch in &mut text {
+                if *ch == b'@' {
+                    *ch = b'\xFF';
+                }
+            }
+            OsString::from_vec(text)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            let mut out = Vec::new();
+            for ch in text.chars() {
+                if ch == '@' {
+                    out.push(0xD800);
+                    out.push(0xFFFF);
+                } else {
+                    let mut buf = [0; 2];
+                    out.extend(&*ch.encode_utf16(&mut buf));
+                }
+            }
+            OsString::from_wide(&out)
+        }
+        #[cfg(not(any(unix, target_os = "wasi", windows)))]
+        {
+            if text.contains('@') {
+                unimplemented!("Don't know how to create invalid OsStrings on this platform");
+            }
+            text.into()
+        }
     }
 }
