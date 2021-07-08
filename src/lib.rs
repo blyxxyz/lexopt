@@ -137,9 +137,11 @@ impl Parser {
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
                 let flag = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
-                    self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
                     match String::from_utf8(bytes[..ind].into()) {
-                        Ok(flag) => flag,
+                        Ok(flag) => {
+                            self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
+                            flag
+                        }
                         Err(_) => {
                             return Err(Error::UnexpectedFlag(
                                 String::from_utf8_lossy(&bytes[..ind]).into(),
@@ -708,6 +710,14 @@ mod tests {
         let mut p = parse("--foo @@@");
         assert_eq!(p.next()?.unwrap(), Long("foo"));
         assert_eq!(p.value()?, bad_string("@@@"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_long_valued_flag_recovery() -> Result<(), Error> {
+        let mut p = parse("--@=10");
+        p.next().unwrap_err();
+        assert_eq!(p.next()?, None);
         Ok(())
     }
 
