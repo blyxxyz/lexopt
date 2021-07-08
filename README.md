@@ -90,11 +90,13 @@ These are not supported:
 - Abbreviated long flags (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
 ## Unicode
-This library makes an effort to support unicode while accepting arguments that are not valid unicode.
+This library supports unicode while tolerating non-unicode arguments.
 
 Short flags may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long flag. If you need normalization you're on your own, but it can be done.)
 
-On Windows a flag can't be combined with a value that isn't valid unicode. That is, `--flag=���` will cause an error. (`--flag ���` is fine.) This is a tricky problem to solve: see [clap v2](https://github.com/clap-rs/clap/blob/v2-master/src/osstringext.rs), [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
+Flags can be combined with non-unicode arguments. That is, `--flag=���` will not cause an error. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
+
+Flags that are invalid unicode will always cause an `Error::UnexpectedFlag`.
 
 ## Why?
 For a particular application I was looking for a command line parser that:
@@ -104,7 +106,7 @@ For a particular application I was looking for a command line parser that:
 
 I couldn't find an existing library that fit all those requirements.
 
-This library may also be useful if a lot of control is desired, like when the exact argument order matters or not all options are known ahead of time.
+This library may also be useful if a lot of control is desired, like when the exact argument order matters or not all options are known ahead of time. It could be considered more of a tokenizer than a parser.
 
 ## Why not?
 This library may not be worth using if:
@@ -113,7 +115,7 @@ This library may not be worth using if:
 - You hate boilerplate
 
 ## See also
-- [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only argument parser for Rust I know of that truly handles invalid unicode properly, if configured right.
+- [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if configured right.
 - [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes.
 - [`pico-args`](https://github.com/RazrFalcon/pico-args): similar size to optic and easier to use (but less rigorous).
 - [`ap`](https://github.com/jamesodhunt/ap-rs): I have not used this, but it seems to support iterative parsing while being less bare-bones than optic.

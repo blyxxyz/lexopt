@@ -19,6 +19,9 @@ pub struct Parser {
     bin_name: Option<OsString>,
     // The current string of short flags being processed
     shorts: Option<(Vec<u8>, usize)>,
+    #[cfg(windows)]
+    // The same thing, but encoded as UTF-16
+    shorts_utf16: Option<(Vec<u16>, usize)>,
     // Temporary storage for a long flag so it can be borrowed
     long: Option<String>,
     // The pending value for the last long flag
@@ -30,11 +33,13 @@ pub struct Parser {
 // source may not implement Debug
 impl std::fmt::Debug for Parser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Parser")
-            .field("source", &"<iterator>")
+        let mut f = f.debug_struct("Parser");
+        f.field("source", &"<iterator>")
             .field("bin_name", &self.bin_name)
-            .field("shorts", &self.shorts)
-            .field("long", &self.long)
+            .field("shorts", &self.shorts);
+        #[cfg(windows)]
+        f.field("shorts_utf16", &self.shorts_utf16);
+        f.field("long", &self.long)
             .field("long_value", &self.long_value)
             .field("finished_opts", &self.finished_opts)
             .finish()
@@ -85,6 +90,25 @@ impl Parser {
                 Err(err) => {
                     *pos += 1; // This may allow recovery
                     return Err(err);
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some((ref arg, ref mut pos)) = self.shorts_utf16 {
+                match first_utf16_codepoint(&arg[*pos..]) {
+                    Ok(None) => {
+                        self.shorts_utf16 = None;
+                    }
+                    Ok(Some(ch)) => {
+                        *pos += ch.len_utf16();
+                        return Ok(Some(Arg::Short(ch)));
+                    }
+                    Err(err) => {
+                        *pos += 1;
+                        return Err(err);
+                    }
                 }
             }
         }
@@ -148,9 +172,7 @@ impl Parser {
 
             #[cfg(windows)]
             {
-                // Checking for dashes is doable on Windows.
-                // A fully correct implementation is possible but I don't
-                // understand UTF-16 well enough to attempt it.
+                // Fast path for Windows
                 use std::os::windows::ffi::OsStrExt;
                 let mut bytes = arg.encode_wide();
                 const DASH: u16 = b'-' as u16;
@@ -169,36 +191,56 @@ impl Parser {
             let arg = match arg.into_string() {
                 Ok(arg) => arg,
                 Err(arg) => {
-                    // Here's where it gets tricky.
-                    // The argument is not valid unicode. If it's a free-standing
-                    // value then that's fine. But if it starts with a - then we
-                    // have to treat it like a flag.
-
-                    // This allocates, sadly.
-                    let text = arg.to_string_lossy();
-                    if text.starts_with('-') {
-                        // At this point it's game over.
-                        // Even if the flag is fine and only the value is malformed,
-                        // there's no way to separate it into its own OsString.
-                        // So we just try to give a reasonable error message.
-                        if let Some((flag, _)) = backport::split_once(&text) {
-                            if flag.contains('\u{FFFD}') {
-                                // Looks like the flag was invalid.
-                                // This means you shouldn't use U+FFFD REPLACEMENT CHARACTER
-                                // in an actual flag.
-                                // But nobody would ever do that, right?
-                                return Err(Error::UnexpectedFlag(flag.into()));
+                    #[cfg(windows)]
+                    {
+                        // Unlike on Unix, we can't efficiently process invalid unicode.
+                        // Semantically it's UTF-16, but internally it's WTF-8 (a superset of UTF-8).
+                        // So we only process the raw version here, when we know we really have to.
+                        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+                        let arg: Vec<u16> = arg.encode_wide().collect();
+                        const DASH: u16 = b'-' as u16;
+                        const EQ: u16 = b'=' as u16;
+                        if arg.starts_with(&[DASH, DASH]) {
+                            if let Some(ind) = arg.iter().position(|&u| u == EQ) {
+                                if let Ok(flag) = String::from_utf16(&arg[..ind]) {
+                                    self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
+                                    let long = backport::insert(&mut self.long, flag);
+                                    return Ok(Some(Arg::Long(&long[2..])));
+                                } else {
+                                    return Err(Error::UnexpectedFlag(String::from_utf16_lossy(
+                                        &arg[..ind],
+                                    )));
+                                }
                             } else {
-                                // This error should be considered a bug in the library.
-                                return Err(Error::NonUnicodeValue(arg));
+                                return Err(Error::UnexpectedFlag(String::from_utf16_lossy(&arg)));
                             }
                         } else {
-                            return Err(Error::UnexpectedFlag(text.into()));
+                            assert!(arg.starts_with(&[DASH]));
+                            assert!(arg.len() > 1);
+                            self.shorts_utf16 = Some((arg, 1));
+                            return self.next();
+                        }
+                    };
+
+                    #[cfg(not(windows))]
+                    {
+                        // TODO: this code is really hard to test, because
+                        // of a lack of platforms!
+                        // wasm32-unknown-unknown qualifies, but I haven't figured out
+                        // how to check the test outcome.
+                        // We can at least use it to make sure this compiles.
+
+                        // This allocates, sadly.
+                        if arg.to_string_lossy().starts_with('-') {
+                            // At this point it's game over.
+                            // Even if the flag is fine and only the value is malformed,
+                            // there's no way to separate it into its own OsString.
+                            return Err(Error::NonUnicodeValue(arg));
+                        } else {
+                            // It didn't look like a flag, so return it as a value.
+                            return Ok(Some(Arg::Value(arg)));
                         }
                     }
-
-                    // It didn't look like a flag, so return it as a value.
-                    return Ok(Some(Arg::Value(arg)));
                 }
             };
 
@@ -248,8 +290,18 @@ impl Parser {
                 #[cfg(not(any(unix, target_os = "wasi")))]
                 {
                     let arg = String::from_utf8(arg[pos..].into())
-                        .expect("short flag args on non-unix must be unicode");
+                        .expect("short flag args on exotic platforms must be unicode");
                     return Ok(arg.into());
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some((arg, pos)) = self.shorts_utf16.take() {
+                if pos < arg.len() {
+                    use std::os::windows::ffi::OsStringExt;
+                    return Ok(OsString::from_wide(&arg[pos..]));
                 }
             }
         }
@@ -269,6 +321,8 @@ impl Parser {
             source: Box::new(source),
             bin_name,
             shorts: None,
+            #[cfg(windows)]
+            shorts_utf16: None,
             long: None,
             long_value: None,
             finished_opts: false,
@@ -287,6 +341,8 @@ impl Parser {
             source: Box::new(args.into_iter().map(Into::into)),
             bin_name: None,
             shorts: None,
+            #[cfg(windows)]
+            shorts_utf16: None,
             long: None,
             long_value: None,
             finished_opts: false,
@@ -334,10 +390,9 @@ pub enum Error {
     ///
     /// This may be returned by some methods on [`ValueExt`].
     ///
-    /// On non-Unix platforms it is also returned when such a value is combined
-    /// with a flag (as in `-f[invalid]` and `--flag=[invalid]`), even if an
-    /// [`OsString`] is requested, because of limitations in Rust's standard
-    /// library.
+    /// On exotic platforms (not Unix or Windows or WASI) it is also returned
+    /// when such a value is combined with a flag (as in `-f[invalid]` and
+    /// `--flag=[invalid]`), even if an [`OsString`] is requested.
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
@@ -509,6 +564,16 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
     Ok(text.chars().next())
 }
 
+#[cfg(windows)]
+/// As before, but for UTF-16.
+fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
+    match std::char::decode_utf16(bytes.iter().copied()).next() {
+        Some(Ok(ch)) => Ok(Some(ch)),
+        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\x{:04x}", bytes[0]))),
+        None => Ok(None),
+    }
+}
+
 /// Implementations of a few useful functions that didn't exist
 /// yet in Rust 1.40 (our MSRV, when #[non_exhaustive] stabilized).
 ///
@@ -598,19 +663,39 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
     #[test]
     fn test_mixed_invalid() -> Result<(), Error> {
         let mut p = parse("--foo=@@@");
-        #[cfg(any(unix, target_os = "wasi"))]
+        let mut q = parse("-💣@@@");
+        let mut r = parse("-f@@@");
+        #[cfg(any(unix, target_os = "wasi", windows))]
         {
             assert_eq!(p.next()?.unwrap(), Long("foo"));
             assert_eq!(p.value()?, bad_string("@@@"));
+
+            assert_eq!(q.next()?.unwrap(), Short('💣'));
+            assert_eq!(dbg!(q.value())?, bad_string("@@@"));
+
+            assert_eq!(r.next()?.unwrap(), Short('f'));
+            match r.next().unwrap_err() {
+                Error::UnexpectedFlag(_) => (),
+                _ => panic!(),
+            }
         }
-        #[cfg(windows)]
+        #[cfg(not(any(unix, target_os = "wasi", windows)))]
         {
             match p.next().unwrap_err() {
                 Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("--foo=@@@")),
+                _ => panic!(),
+            }
+
+            match q.next().unwrap_err() {
+                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("-💣@@@")),
+                _ => panic!(),
+            }
+
+            match r.next().unwrap_err() {
+                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("-f@@@")),
                 _ => panic!(),
             }
         }
