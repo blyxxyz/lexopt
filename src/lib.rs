@@ -510,7 +510,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 }
 
 /// Implementations of a few useful functions that didn't exist
-/// yet in Rust 1.42 (the arbitrarily chosen MSRV).
+/// yet in Rust 1.40 (our MSRV, when #[non_exhaustive] stabilized).
 ///
 /// Not generic but shamelessly specialized for our needs.
 #[allow(dead_code)]
@@ -656,12 +656,18 @@ mod tests {
     #[test]
     fn test_value_ext_invalid() -> Result<(), Error> {
         let s = bad_string("foo@");
-        assert!(matches!(s.parse::<i32>(), Err(Error::NonUnicodeValue(_))));
-        assert!(matches!(
-            s.parse_with(<f32 as FromStr>::from_str),
-            Err(Error::NonUnicodeValue(_))
-        ));
-        assert!(matches!(s.string(), Err(Error::NonUnicodeValue(_))));
+        match s.parse::<i32>() {
+            Err(Error::NonUnicodeValue(_)) => (),
+            _ => panic!(),
+        }
+        match s.parse_with(<f32 as FromStr>::from_str) {
+            Err(Error::NonUnicodeValue(_)) => (),
+            _ => panic!(),
+        }
+        match s.string() {
+            Err(Error::NonUnicodeValue(_)) => (),
+            _ => panic!(),
+        }
         Ok(())
     }
 
