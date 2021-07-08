@@ -3,20 +3,19 @@
 Optic is an *imperative* argument parser. Most parsers are declarative: they are told which flags to expect. Optic instead returns flags as it encounters them and leaves their handling up to you.
 
 Optic is:
-- Small: one library, no dependencies, no macros.
-- Correct: common conventions are supported and ambiguity is avoided.
+- Small: one file, no dependencies, no macros. Easy to audit or vendor.
+- Correct: common conventions are supported and ambiguity is avoided. Tested and fuzzed.
 - Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly.
 - Unopiniated: only the bare necessities for correctness are provided, things like subcommands and default values are up to the user to implement.
 - Unhelpful: there is no help generation and error messages often lack context.
 
 ## Example
-
 ```rust
 #[derive(Debug)]
 struct Args {
     follow: bool,
     number: u64,
-    file: Option<std::path::PathBuf>,
+    file: std::path::PathBuf,
 }
 
 fn parse_args() -> Result<Args, optic::Error> {
@@ -39,7 +38,7 @@ fn parse_args() -> Result<Args, optic::Error> {
                 file = Some(value.into());
             }
             Long("help") => {
-                println!("USAGE: tail [-f|--follow] [-n NUM] [FILE]");
+                println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
                 std::process::exit(0);
             }
             _ => return Err(arg.error()),
@@ -48,7 +47,7 @@ fn parse_args() -> Result<Args, optic::Error> {
     Ok(Args {
         follow,
         number,
-        file,
+        file: file.ok_or("missing FILE argument")?,
     })
 }
 
@@ -70,10 +69,9 @@ Let's walk through this:
 - `Value` indicates a free-standing argument. In this case, a filename.
   - It also contains an `OsString`, which is easily converted into a [`PathBuf`](https://doc.rust-lang.org/std/path/struct.PathBuf.html).
 - If we don't know what to do with an argument we use `return Err(arg.error())` to turn it into an error message.
+- Strings can be promoted to errors for custom error messages.
 
-This covers almost all the functionality. Optic does very little for you.
-
-TODO: error reporting with strings
+This covers almost all the functionality in the library. Optic does very little for you.
 
 ## Command line syntax
 The following conventions are supported:
@@ -81,7 +79,7 @@ The following conventions are supported:
 - Long flags (`--verbose`)
 - `--` to mark the end of options
 - `=` to separate long flags from values (`--flag=value`)
-- Separating flags from values with spaces (`--flag value`, `-f value`)
+- Spaces to separate flags from values (`--flag value`, `-f value`)
 - Unseparated short flags (`-fvalue`)
 - Combined flags (`-abc` to mean `-a -b -c`)
 
@@ -89,12 +87,12 @@ These are not supported:
 - `-f=value` for short flags
 - Flags with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
 - Single-dash long flags (like find's `-name`)
-- Abbreviated long flags (GNU tools let you write `--num` instead of `--number` if it can be expanded unambiguously)
+- Abbreviated long flags (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
 ## Unicode
 This library makes an effort to support unicode while accepting arguments that are not valid unicode.
 
-Short flags may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long flag.)
+Short flags may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long flag. If you need normalization you're on your own, but it can be done.)
 
 On Windows a flag can't be combined with a value that isn't valid unicode. That is, `--flag=���` will cause an error. (`--flag ���` is fine.) This is a tricky problem to solve: see [clap v2](https://github.com/clap-rs/clap/blob/v2-master/src/osstringext.rs), [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
 
@@ -104,7 +102,15 @@ For a particular application I was looking for a command line parser that:
 - Strictly adheres to the usual shell conventions
 - Supports non-unicode arguments
 
-I couldn't find a library that fit all those requirements, so like any self-respecting yak-shaver I started writing my own.
+I couldn't find an existing library that fit all those requirements.
+
+This library may also be useful if a lot of control is desired, like when the exact argument order matters or not all options are known ahead of time.
+
+## Why not?
+This library may not be worth using if:
+- You don't care about non-unicode arguments
+- You don't care about exact compliance and correctness
+- You hate boilerplate
 
 ## See also
 - [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only argument parser for Rust I know of that truly handles invalid unicode properly, if configured right.

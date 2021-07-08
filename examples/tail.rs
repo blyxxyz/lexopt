@@ -2,7 +2,7 @@
 struct Args {
     follow: bool,
     number: u64,
-    file: Option<std::path::PathBuf>,
+    file: std::path::PathBuf,
 }
 
 fn parse_args() -> Result<Args, optic::Error> {
@@ -25,7 +25,7 @@ fn parse_args() -> Result<Args, optic::Error> {
                 file = Some(value.into());
             }
             Long("help") => {
-                println!("USAGE: tail [-f|--follow] [-n NUM] [FILE]");
+                println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
                 std::process::exit(0);
             }
             _ => return Err(arg.error()),
@@ -34,7 +34,7 @@ fn parse_args() -> Result<Args, optic::Error> {
     Ok(Args {
         follow,
         number,
-        file,
+        file: file.ok_or("missing FILE argument")?,
     })
 }
 
