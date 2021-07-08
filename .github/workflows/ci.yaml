@@ -51,13 +51,7 @@ jobs:
           command: clippy
           args: -- -D warnings
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: x86_64-pc-windows-msvc
-          components: clippy
+      - run: rustup target add x86_64-pc-windows-msvc wasm32-wasi wasm32-unknown-unknown
 
       - name: clippy (Windows)
         uses: actions-rs/cargo@v1
@@ -65,27 +59,11 @@ jobs:
           command: clippy
           args: --target x86_64-pc-windows-msvc -- -D warnings
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: wasm32-wasi
-          components: clippy
-
       - name: clippy (WASI)
         uses: actions-rs/cargo@v1
         with:
           command: clippy
           args: --target wasm32-wasi -- -D warnings
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: wasm32-unknown-unknown
-          components: clippy
 
       - name: clippy (wasm32)
         uses: actions-rs/cargo@v1
