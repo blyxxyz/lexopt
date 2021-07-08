@@ -685,7 +685,10 @@ mod tests {
     fn bad_string(text: &str) -> OsString {
         #[cfg(any(unix, target_os = "wasi"))]
         {
+            #[cfg(unix)]
             use std::os::unix::ffi::OsStringExt;
+            #[cfg(target_os = "wasi")]
+            use std::os::wasi::ffi::OsStringExt;
             let mut text = text.as_bytes().to_vec();
             for ch in &mut text {
                 if *ch == b'@' {
