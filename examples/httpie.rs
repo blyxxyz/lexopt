@@ -3,7 +3,6 @@
 //! This gives an example of some hairier patterns.
 //!
 //! Based on https://github.com/ducaale/xh/blob/bdb97f/src/cli.rs
-//! (some of which I wrote myself).
 
 use std::{path::PathBuf, str::FromStr};
 
@@ -88,11 +87,14 @@ fn parse_args() -> Result<Args, optic::Error> {
                 // If we don't have a FromStr implementation or it doesn't do
                 // what we want we can use a custom function.
                 proxies.push(parser.value()?.parse_with(|s| {
+                    // Starting from Rust 1.52, use str::split_once instead:
+                    // https://doc.rust-lang.org/std/primitive.str.html#method.split_once
                     let split_arg: Vec<&str> = s.splitn(2, ':').collect();
                     match split_arg[..] {
                         ["http", url] => Ok(Proxy::Http(url.parse()?)),
                         ["https", url] => Ok(Proxy::Https(url.parse()?)),
                         ["all", url] => Ok(Proxy::All(url.parse()?)),
+                        [_, _] => Err("Unknown protocol. Pick from: http, https, all"),
                         _ => Err("Invalid proxy. Format as <PROTOCOL>:<PROXY_URL>"),
                     }
                 })?);
@@ -108,6 +110,8 @@ fn parse_args() -> Result<Args, optic::Error> {
         }
     }
 
+    // We collected positional arguments as we went.
+    // Now we turn them into an iterator again to process them separately.
     let mut args = args.into_iter();
     let method;
     let url;
@@ -122,7 +126,7 @@ fn parse_args() -> Result<Args, optic::Error> {
             url = text.parse()?;
         }
     }
-    let request_items = args.map(RequestItem).collect();
+    let request_items = args.map(|s| s.parse()).collect::<Result<_, _>>()?;
 
     Ok(Args {
         json,
@@ -192,9 +196,28 @@ enum Proxy {
     All(Url),
 }
 
-// These are actually pretty complicated to parse but we'll pretend they're strings.
+// These are actually pretty complicated but we'll simplify things.
 #[derive(Debug)]
-struct RequestItem(String);
+struct RequestItem {
+    key: String,
+    value: String,
+}
+
+impl FromStr for RequestItem {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let split_arg: Vec<&str> = s.splitn(2, '=').collect();
+        if let [key, value] = split_arg[..] {
+            Ok(RequestItem {
+                key: key.into(),
+                value: value.into(),
+            })
+        } else {
+            Err("missing = sign")
+        }
+    }
+}
 
 fn main() -> Result<(), optic::Error> {
     let args = parse_args()?;
