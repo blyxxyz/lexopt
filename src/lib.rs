@@ -1,4 +1,60 @@
-//! Experimental imperative argument parsing library.
+//! A simple command line tokenizer.
+//!
+//! Most argument parsers are declarative: you tell them what to parse,
+//! and they do it.
+//!
+//! This one provides you with a stream of flags and values and lets you
+//! figure out the rest.
+//!
+//! ## Example
+//! ```no_run
+//! #[derive(Debug)]
+//! struct Args {
+//!     follow: bool,
+//!     number: u64,
+//!     file: std::path::PathBuf,
+//! }
+//!
+//! fn parse_args() -> Result<Args, optic::Error> {
+//!     use optic::prelude::*;
+//!
+//!     let mut follow = false;
+//!     let mut number = 10;
+//!     let mut file = None;
+//!
+//!     let mut parser = optic::Parser::from_env();
+//!     while let Some(arg) = parser.next()? {
+//!         match arg {
+//!             Short('f') | Long("follow") => {
+//!                 follow = true;
+//!             }
+//!             Short('n') => {
+//!                 number = parser.value()?.parse()?;
+//!             }
+//!             Value(value) if file.is_none() => {
+//!                 file = Some(value.into());
+//!             }
+//!             Long("help") => {
+//!                 println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
+//!                 std::process::exit(0);
+//!             }
+//!             _ => return Err(arg.error()),
+//!         }
+//!     }
+//!     Ok(Args {
+//!         follow,
+//!         number,
+//!         file: file.ok_or("missing FILE argument")?,
+//!     })
+//! }
+//!
+//! fn main() -> Result<(), optic::Error> {
+//!     let args = parse_args()?;
+//!     println!("{:#?}", args);
+//!     Ok(())
+//! }
+//! ```
+
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![allow(clippy::should_implement_trait)]
@@ -577,7 +633,7 @@ fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
 }
 
 /// Implementations of a few useful functions that didn't exist
-/// yet in Rust 1.40 (our MSRV, when #[non_exhaustive] stabilized).
+/// yet in Rust 1.40 (our MSRV, when non_exhaustive stabilized).
 ///
 /// Not generic but shamelessly specialized for our needs.
 #[allow(dead_code)]
