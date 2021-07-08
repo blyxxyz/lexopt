@@ -73,6 +73,8 @@ Let's walk through this:
 
 This covers almost all the functionality in the library. Optic does very little for you.
 
+For a more complete example with useful patterns, see [`examples/httpie.rs`](examples/httpie.rs).
+
 ## Command line syntax
 The following conventions are supported:
 - Short flags (`-q`)
