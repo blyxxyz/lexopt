@@ -150,9 +150,8 @@ impl Parser {
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
-            // TODO: take or clone?
             return Err(Error::UnexpectedValue {
-                flag: self.long.take(),
+                flag: self.long.clone(),
                 value,
             });
         }
@@ -406,7 +405,7 @@ impl Parser {
         let flag = match self.last_flag {
             LastFlag::None => None,
             LastFlag::Short(ch) => Some(format!("-{}", ch)),
-            LastFlag::Long => self.long.take(),
+            LastFlag::Long => self.long.clone(),
         };
         Err(Error::MissingValue { flag })
     }
