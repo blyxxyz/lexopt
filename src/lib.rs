@@ -88,6 +88,8 @@ pub struct Parser {
     long: Option<String>,
     // The pending value for the last long flag
     long_value: Option<OsString>,
+    // The last flag we emitted
+    last_flag: LastFlag,
     // Whether we encountered "--" and know no more flags are coming
     finished_opts: bool,
 }
@@ -103,9 +105,26 @@ impl std::fmt::Debug for Parser {
         f.field("shorts_utf16", &self.shorts_utf16);
         f.field("long", &self.long)
             .field("long_value", &self.long_value)
+            .field("last_flag", &self.last_flag)
             .field("finished_opts", &self.finished_opts)
             .finish()
     }
+}
+
+/// We use this to keep track of the last emitted flag, for error messages when
+/// an expected value is not found.
+///
+/// A long flag can be recovered from the `long` field, so that variant doesn't
+/// need to contain data. (We sometimes clear the field, but only for the
+/// opposite error (a value is found but not expected), so that's fine.)
+///
+/// Our short flag storage is cleared more aggressively, so we do need to
+/// duplicate that.
+#[derive(Debug)]
+enum LastFlag {
+    None,
+    Short(char),
+    Long,
 }
 
 /// A command line argument, either a flag or a free-standing value.
@@ -147,6 +166,7 @@ impl Parser {
                 // See https://linux.die.net/man/1/a2ps
                 Ok(Some(ch)) => {
                     *pos += ch.len_utf8();
+                    self.last_flag = LastFlag::Short(ch);
                     return Ok(Some(Arg::Short(ch)));
                 }
                 Err(err) => {
@@ -165,6 +185,7 @@ impl Parser {
                     }
                     Ok(Some(ch)) => {
                         *pos += ch.len_utf16();
+                        self.last_flag = LastFlag::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
                     Err(err) => {
@@ -221,6 +242,7 @@ impl Parser {
                 // Store the flag so the caller can borrow it.
                 // We go through this trouble because matching an owned string is a pain.
                 let long = backport::insert(&mut self.long, flag);
+                self.last_flag = LastFlag::Long;
                 Ok(Some(Arg::Long(&long[2..])))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
                 self.shorts = Some((arg.into_vec(), 1));
@@ -269,6 +291,7 @@ impl Parser {
                                 if let Ok(flag) = String::from_utf16(&arg[..ind]) {
                                     self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
                                     let long = backport::insert(&mut self.long, flag);
+                                    self.last_flag = LastFlag::Long;
                                     return Ok(Some(Arg::Long(&long[2..])));
                                 } else {
                                     return Err(Error::UnexpectedFlag(String::from_utf16_lossy(
@@ -312,9 +335,11 @@ impl Parser {
                 if let Some((flag, value)) = backport::split_once(&arg) {
                     let long = &backport::insert(&mut self.long, flag.into())[2..];
                     self.long_value = Some(value.into());
+                    self.last_flag = LastFlag::Long;
                     Ok(Some(Arg::Long(long)))
                 } else {
                     let long = &backport::insert(&mut self.long, arg)[2..];
+                    self.last_flag = LastFlag::Long;
                     Ok(Some(Arg::Long(long)))
                 }
             } else if arg.len() > 1 && arg.starts_with('-') {
@@ -374,7 +399,12 @@ impl Parser {
             return Ok(value);
         }
 
-        Err(Error::MissingValue)
+        let flag = match self.last_flag {
+            LastFlag::None => None,
+            LastFlag::Short(ch) => Some(format!("-{}", ch)),
+            LastFlag::Long => self.long.take(),
+        };
+        Err(Error::MissingValue(flag))
     }
 
     /// Create a parser from the environment using [`std::env::args_os`].
@@ -389,6 +419,7 @@ impl Parser {
             shorts_utf16: None,
             long: None,
             long_value: None,
+            last_flag: LastFlag::None,
             finished_opts: false,
         }
     }
@@ -409,6 +440,7 @@ impl Parser {
             shorts_utf16: None,
             long: None,
             long_value: None,
+            last_flag: LastFlag::None,
             finished_opts: false,
         }
     }
@@ -460,11 +492,9 @@ impl Arg<'_> {
 /// operator.
 #[non_exhaustive]
 pub enum Error {
+    // TODO: use struct-style data for some of these?
     /// An option argument was expected but was not found.
-    // TODO: store the flag
-    // Probably an enum field in Parser that can hold a char or
-    // say to refer to .long
-    MissingValue,
+    MissingValue(Option<String>),
 
     /// An unexpected flag was found.
     UnexpectedFlag(String),
@@ -495,7 +525,8 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Error::*;
         match self {
-            MissingValue => write!(f, "missing argument at end of command"),
+            MissingValue(None) => write!(f, "missing argument at end of command"),
+            MissingValue(Some(flag)) => write!(f, "missing argument for option '{}'", flag),
             UnexpectedFlag(flag) => write!(f, "invalid option '{}'", flag),
             UnexpectedArgument(value) => write!(f, "unexpected argument {:?}", value),
             UnexpectedValue(Some(flag), value) => {
@@ -754,6 +785,31 @@ mod tests {
         assert_eq!(p.next()?.unwrap(), Short('-'));
         assert_eq!(p.next()?.unwrap(), Short('y'));
         assert_eq!(p.next()?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_missing_value() -> Result<(), Error> {
+        let mut p = parse("-o");
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        match p.value() {
+            Err(Error::MissingValue(Some(flag))) => assert_eq!(flag, "-o"),
+            _ => panic!(),
+        }
+
+        let mut q = parse("--out");
+        assert_eq!(q.next()?.unwrap(), Long("out"));
+        match q.value() {
+            Err(Error::MissingValue(Some(flag))) => assert_eq!(flag, "--out"),
+            _ => panic!(),
+        }
+
+        let mut r = parse("");
+        match r.value() {
+            Err(Error::MissingValue(None)) => (),
+            _ => panic!(),
+        }
 
         Ok(())
     }
