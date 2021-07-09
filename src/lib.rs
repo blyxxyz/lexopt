@@ -67,8 +67,13 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //     - Can we support that without making it easy to forget about them?
 // - Fuzzing on other platforms
 // - Pin down/document (formally or informally) recovery guarantees
-// - Make bin_name() easier (strip directories, strip extension, decode)
+// - Figure out how bin_name() should work
+//   - At least three use cases:
+//     - Put in help/error messages (unprocessed &str)
+//     - Figure out variant of program (as in egrep vs grep) (strip dir and extension)
+//     - Get the plain argv[0] to do something else (unprocessed &OsStr)
 // - Reconsider use of word "option", maybe always call it "flag"?
+// - Update table in README before release
 
 /// A parser for command line arguments.
 pub struct Parser {
@@ -185,7 +190,7 @@ impl Parser {
 
         #[cfg(any(unix, target_os = "wasi"))]
         {
-            // Fast solution for platforms where OsStrings are just bytes
+            // Fast solution for platforms where OsStrings are just UTF-8-ish bytes
             #[cfg(unix)]
             use std::os::unix::ffi::{OsStrExt, OsStringExt};
             #[cfg(target_os = "wasi")]
@@ -435,6 +440,7 @@ impl Parser {
 
 impl Arg<'_> {
     /// Convert an unexpected argument into an error.
+    // TODO: rename to unexpected()?
     pub fn error(self) -> Error {
         match self {
             Arg::Short(short) => Error::UnexpectedFlag(format!("-{}", short)),
@@ -445,6 +451,7 @@ impl Arg<'_> {
 }
 
 /// An error during argument parsing.
+// TODO: document From impls
 #[non_exhaustive]
 pub enum Error {
     /// An option argument was expected but was not found.
@@ -631,6 +638,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
     match std::char::decode_utf16(bytes.iter().copied()).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
+        // TODO: is this a sensible way to format it?
         Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\x{:04x}", bytes[0]))),
         None => Ok(None),
     }
