@@ -896,10 +896,15 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_long_valued_flag_recovery() -> Result<(), Error> {
+    fn test_invalid_long_flag() -> Result<(), Error> {
         let mut p = parse("--@=10");
         p.next().unwrap_err();
         assert_eq!(p.next()?, None);
+
+        let mut q = parse("--@");
+        q.next().unwrap_err();
+        assert_eq!(p.next()?, None);
+
         Ok(())
     }
 
