@@ -101,12 +101,7 @@ Flags can be combined with non-unicode arguments. That is, `--flag=���` wi
 Flags that are invalid unicode will always cause an `Error::UnexpectedFlag`.
 
 ## Why?
-For a particular application I was looking for a command line parser that:
-- Is fairly small
-- Strictly adheres to the usual shell conventions
-- Supports non-unicode arguments
-
-I couldn't find an existing library that fit all those requirements.
+For a particular application I was looking for a small parser that's pedantically correct. There are other compact argument parsing libraries, but I couldn't find one that handled `OsString`s and implemented all the fiddly details of the argument syntax faithfully.
 
 This library may also be useful if a lot of control is desired, like when the exact argument order matters or not all options are known ahead of time. It could be considered more of a tokenizer than a parser.
 
