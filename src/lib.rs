@@ -64,6 +64,11 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 // TODO:
 // - Idiomatic way to find heterogenous positional arguments?
 //   - Getopt saves positional arguments for the end
+//     - Can we support that without making it easy to forget about them?
+// - Fuzzing on other platforms
+// - Pin down/document (formally or informally) recovery guarantees
+// - Make bin_name() easier (strip directories, strip extension, decode)
+// - Reconsider use of word "option", maybe always call it "flag"?
 
 /// A parser for command line arguments.
 pub struct Parser {
@@ -443,6 +448,9 @@ impl Arg<'_> {
 #[non_exhaustive]
 pub enum Error {
     /// An option argument was expected but was not found.
+    // TODO: store the flag
+    // Probably an enum field in Parser that can hold a char or
+    // say to refer to .long
     MissingValue,
 
     /// An unexpected flag was found.
