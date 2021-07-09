@@ -638,8 +638,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
     match std::char::decode_utf16(bytes.iter().copied()).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
-        // TODO: is this a sensible way to format it?
-        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\x{:04x}", bytes[0]))),
+        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", bytes[0]))),
         None => Ok(None),
     }
 }
