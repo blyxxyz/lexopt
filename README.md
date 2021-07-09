@@ -65,7 +65,7 @@ Let's walk through this:
 - To get the value that belongs to an option (like `10` in `-n 10`) we call `parser.value()`.
   - This returns a standard [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html).
   - For convenience, `use optic::prelude::*` adds a `.parse()` method, analogous to [`str::parse`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
-  - There's also a `.string()` method to decode it into a plain `String` (not shown).
+  - The standard `.into_string()` method can decode it into a plain `String` (not shown).
 - `Value` indicates a free-standing argument. In this case, a filename.
   - It also contains an `OsString`, which is easily converted into a [`PathBuf`](https://doc.rust-lang.org/std/path/struct.PathBuf.html).
 - If we don't know what to do with an argument we use `return Err(arg.error())` to turn it into an error message.

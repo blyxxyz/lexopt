@@ -104,7 +104,9 @@ fn parse_args() -> Result<Args, optic::Error> {
                 std::process::exit(0);
             }
             Value(arg) => {
-                args.push(arg.string()?);
+                // If we want a plain String for later processing then
+                // we can call .into_string() (part of the stdlib).
+                args.push(arg.into_string()?);
             }
             _ => return Err(arg.error()),
         }

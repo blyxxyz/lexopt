@@ -517,14 +517,14 @@ mod private {
     impl Sealed for std::ffi::OsString {}
 }
 
-/// An optional extension trait with methods for processing [`OsString`]s.
+/// An optional extension trait with methods for parsing [`OsString`]s.
 ///
-/// These methods return optic's own [`Error`] type on failure for easy mixing
-/// with other fallible functions.
-///
-/// Depending on the method, they may fail in two cases:
+/// They may fail in two cases:
 /// - The value cannot be decoded because it's invalid unicode
-/// - The value cannot be parsed
+///   ([`Error::NonUnicodeValue`])
+/// - The value can be decoded, but parsing fails ([`Error::ParsingFailed`])
+///
+/// If parsing fails the error will be wrapped in optic's own [`Error`] type.
 pub trait ValueExt: private::Sealed {
     /// Decode the value and parse it using [`FromStr`].
     ///
@@ -546,19 +546,6 @@ pub trait ValueExt: private::Sealed {
     //
     // If you have a use for parse_os_with() please open an issue with an
     // example.
-
-    /// Decode the value into a [`String`].
-    ///
-    /// This is identical to [`OsString::into_string`] except for the
-    /// error type and the shorter name.
-    ///
-    /// `From<OsString>` is implemented for [`Error`], so you can write
-    /// `.into_string()?` if you prefer.
-    fn string(self) -> Result<String, Error>;
-
-    // TODO:
-    // str()?
-    // or maybe remove string()?
 }
 
 impl ValueExt for OsString {
@@ -581,10 +568,6 @@ impl ValueExt for OsString {
             },
             None => Err(Error::NonUnicodeValue(self.into())),
         }
-    }
-
-    fn string(self) -> Result<String, Error> {
-        Ok(self.into_string()?)
     }
 }
 
@@ -832,7 +815,7 @@ mod tests {
             Err(Error::ParsingFailed(text, _)) => assert_eq!(text, "-10"),
             _ => panic!(),
         }
-        assert_eq!(s.string()?, "-10");
+        assert_eq!(s.into_string()?, "-10");
         Ok(())
     }
 
@@ -848,7 +831,7 @@ mod tests {
             Err(Error::NonUnicodeValue(_)) => (),
             _ => panic!(),
         }
-        match s.string() {
+        match s.into_string().map_err(Error::from) {
             Err(Error::NonUnicodeValue(_)) => (),
             _ => panic!(),
         }
