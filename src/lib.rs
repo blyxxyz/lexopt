@@ -150,7 +150,11 @@ impl Parser {
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
-            return Err(Error::UnexpectedValue(self.long.take(), value));
+            // TODO: take or clone?
+            return Err(Error::UnexpectedValue {
+                flag: self.long.take(),
+                value,
+            });
         }
 
         if let Some((ref arg, ref mut pos)) = self.shorts {
@@ -404,7 +408,7 @@ impl Parser {
             LastFlag::Short(ch) => Some(format!("-{}", ch)),
             LastFlag::Long => self.long.take(),
         };
-        Err(Error::MissingValue(flag))
+        Err(Error::MissingValue { flag })
     }
 
     /// Create a parser from the environment using [`std::env::args_os`].
@@ -492,9 +496,11 @@ impl Arg<'_> {
 /// operator.
 #[non_exhaustive]
 pub enum Error {
-    // TODO: use struct-style data for some of these?
     /// An option argument was expected but was not found.
-    MissingValue(Option<String>),
+    MissingValue {
+        /// The most recently emitted flag.
+        flag: Option<String>,
+    },
 
     /// An unexpected flag was found.
     UnexpectedFlag(String),
@@ -503,10 +509,20 @@ pub enum Error {
     UnexpectedArgument(OsString),
 
     /// A flag had a value when none was expected.
-    UnexpectedValue(Option<String>, OsString),
+    UnexpectedValue {
+        /// The flag. This is always a long flag.
+        flag: Option<String>,
+        /// The value.
+        value: OsString,
+    },
 
-    /// Parsing a value failed. Returned by [`ValueExt::parse`].
-    ParsingFailed(String, Box<dyn std::error::Error + Send + Sync + 'static>),
+    /// Parsing a value failed. Returned by methods on [`ValueExt`].
+    ParsingFailed {
+        /// The string that failed to parse.
+        value: String,
+        /// The error returned while parsing.
+        error: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
 
     /// A value was found that was not valid unicode.
     ///
@@ -525,18 +541,25 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Error::*;
         match self {
-            MissingValue(None) => write!(f, "missing argument at end of command"),
-            MissingValue(Some(flag)) => write!(f, "missing argument for option '{}'", flag),
+            MissingValue { flag: None } => write!(f, "missing argument at end of command"),
+            MissingValue { flag: Some(flag) } => {
+                write!(f, "missing argument for option '{}'", flag)
+            }
             UnexpectedFlag(flag) => write!(f, "invalid option '{}'", flag),
             UnexpectedArgument(value) => write!(f, "unexpected argument {:?}", value),
-            UnexpectedValue(Some(flag), value) => {
+            UnexpectedValue {
+                flag: Some(flag),
+                value,
+            } => {
                 write!(f, "unexpected argument for option '{}': {:?}", flag, value)
             }
-            UnexpectedValue(None, value) => {
+            UnexpectedValue { flag: None, value } => {
                 write!(f, "unexpected argument for option: {:?}", value)
             }
             NonUnicodeValue(value) => write!(f, "argument is invalid unicode: {:?}", value),
-            ParsingFailed(arg, err) => write!(f, "cannot parse argument {:?}: {}", arg, err),
+            ParsingFailed { value, error } => {
+                write!(f, "cannot parse argument {:?}: {}", value, error)
+            }
             Custom(err) => write!(f, "{}", err),
         }
     }
@@ -552,7 +575,7 @@ impl std::fmt::Debug for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::ParsingFailed(_, err) | Error::Custom(err) => Some(err.as_ref()),
+            Error::ParsingFailed { error, .. } | Error::Custom(error) => Some(error.as_ref()),
             _ => None,
         }
     }
@@ -629,7 +652,10 @@ impl ValueExt for OsString {
         match self.to_str() {
             Some(text) => match func(text) {
                 Ok(value) => Ok(value),
-                Err(err) => Err(Error::ParsingFailed(text.to_owned(), err.into())),
+                Err(err) => Err(Error::ParsingFailed {
+                    value: text.to_owned(),
+                    error: err.into(),
+                }),
             },
             None => Err(Error::NonUnicodeValue(self.into())),
         }
@@ -746,7 +772,10 @@ mod tests {
         assert_eq!(p.value()?, "qux");
         assert_eq!(p.next()?.unwrap(), Long("foobar"));
         match p.next().unwrap_err() {
-            Error::UnexpectedValue(Some(flag), value) => {
+            Error::UnexpectedValue {
+                flag: Some(flag),
+                value,
+            } => {
                 assert_eq!(flag, "--foobar");
                 assert_eq!(value, "qux=baz");
             }
@@ -794,20 +823,20 @@ mod tests {
         let mut p = parse("-o");
         assert_eq!(p.next()?.unwrap(), Short('o'));
         match p.value() {
-            Err(Error::MissingValue(Some(flag))) => assert_eq!(flag, "-o"),
+            Err(Error::MissingValue { flag: Some(flag) }) => assert_eq!(flag, "-o"),
             _ => panic!(),
         }
 
         let mut q = parse("--out");
         assert_eq!(q.next()?.unwrap(), Long("out"));
         match q.value() {
-            Err(Error::MissingValue(Some(flag))) => assert_eq!(flag, "--out"),
+            Err(Error::MissingValue { flag: Some(flag) }) => assert_eq!(flag, "--out"),
             _ => panic!(),
         }
 
         let mut r = parse("");
         match r.value() {
-            Err(Error::MissingValue(None)) => (),
+            Err(Error::MissingValue { flag: None }) => (),
             _ => panic!(),
         }
 
@@ -895,14 +924,14 @@ mod tests {
             0,
         );
         match s.parse::<u32>() {
-            Err(Error::ParsingFailed(text, _)) => assert_eq!(text, "-10"),
+            Err(Error::ParsingFailed { value, .. }) => assert_eq!(value, "-10"),
             _ => panic!(),
         }
         match s.parse_with(|s| match s {
             "11" => Ok(0_i32),
             _ => Err("bad"),
         }) {
-            Err(Error::ParsingFailed(text, _)) => assert_eq!(text, "-10"),
+            Err(Error::ParsingFailed { value, .. }) => assert_eq!(value, "-10"),
             _ => panic!(),
         }
         assert_eq!(s.into_string()?, "-10");
