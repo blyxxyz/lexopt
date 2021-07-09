@@ -714,6 +714,20 @@ mod tests {
         Parser::from_args(args.split_ascii_whitespace().map(bad_string))
     }
 
+    /// Specialized backport of matches!()
+    macro_rules! assert_matches {
+        ($expression: expr, $pattern: pat$(,)?) => {
+            match $expression {
+                $pattern => true,
+                _ => panic!(
+                    "{:?} does not match {:?}",
+                    stringify!($expression),
+                    stringify!($pattern)
+                ),
+            }
+        };
+    }
+
     #[test]
     fn test_basic() -> Result<(), Error> {
         let mut p = parse("-n 10 foo - -- baz -qux");
@@ -850,10 +864,7 @@ mod tests {
             assert_eq!(dbg!(q.value())?, bad_string("@@@"));
 
             assert_eq!(r.next()?.unwrap(), Short('f'));
-            match r.next().unwrap_err() {
-                Error::UnexpectedFlag(_) => (),
-                _ => panic!(),
-            }
+            assert_matches!(r.next(), Err(Error::UnexpectedFlag(_)));
         }
         #[cfg(not(any(unix, target_os = "wasi", windows)))]
         {
@@ -922,18 +933,15 @@ mod tests {
     #[test]
     fn test_value_ext_invalid() -> Result<(), Error> {
         let s = bad_string("foo@");
-        match s.parse::<i32>() {
-            Err(Error::NonUnicodeValue(_)) => (),
-            _ => panic!(),
-        }
-        match s.parse_with(<f32 as FromStr>::from_str) {
-            Err(Error::NonUnicodeValue(_)) => (),
-            _ => panic!(),
-        }
-        match s.into_string().map_err(Error::from) {
-            Err(Error::NonUnicodeValue(_)) => (),
-            _ => panic!(),
-        }
+        assert_matches!(s.parse::<i32>(), Err(Error::NonUnicodeValue(_)));
+        assert_matches!(
+            s.parse_with(<f32 as FromStr>::from_str),
+            Err(Error::NonUnicodeValue(_)),
+        );
+        assert_matches!(
+            s.into_string().map_err(Error::from),
+            Err(Error::NonUnicodeValue(_)),
+        );
         Ok(())
     }
 
