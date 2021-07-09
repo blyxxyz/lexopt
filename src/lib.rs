@@ -242,11 +242,7 @@ impl Parser {
                         }
                     }
                 };
-                // Store the flag so the caller can borrow it.
-                // We go through this trouble because matching an owned string is a pain.
-                let long = backport::insert(&mut self.long, flag);
-                self.last_flag = LastFlag::Long;
-                Ok(Some(Arg::Long(&long[2..])))
+                Ok(Some(self.set_long(flag)))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
                 self.shorts = Some((arg.into_vec(), 1));
                 self.next()
@@ -293,9 +289,7 @@ impl Parser {
                             if let Some(ind) = arg.iter().position(|&u| u == EQ) {
                                 if let Ok(flag) = String::from_utf16(&arg[..ind]) {
                                     self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
-                                    let long = backport::insert(&mut self.long, flag);
-                                    self.last_flag = LastFlag::Long;
-                                    return Ok(Some(Arg::Long(&long[2..])));
+                                    return Ok(Some(self.set_long(flag)));
                                 } else {
                                     return Err(Error::UnexpectedFlag(String::from_utf16_lossy(
                                         &arg[..ind],
@@ -335,15 +329,12 @@ impl Parser {
             };
 
             if arg.starts_with("--") {
-                if let Some((flag, value)) = backport::split_once(&arg) {
-                    let long = &backport::insert(&mut self.long, flag.into())[2..];
+                let mut parts = arg.splitn(2, '=');
+                if let (Some(flag), Some(value)) = (parts.next(), parts.next()) {
                     self.long_value = Some(value.into());
-                    self.last_flag = LastFlag::Long;
-                    Ok(Some(Arg::Long(long)))
+                    Ok(Some(self.set_long(flag.into())))
                 } else {
-                    let long = &backport::insert(&mut self.long, arg)[2..];
-                    self.last_flag = LastFlag::Long;
-                    Ok(Some(Arg::Long(long)))
+                    Ok(Some(self.set_long(arg)))
                 }
             } else if arg.len() > 1 && arg.starts_with('-') {
                 self.shorts = Some((arg.into(), 1));
@@ -470,6 +461,15 @@ impl Parser {
         //     like /proc/self/exe
         //   So let's not do anything to support that use case.
         self.bin_name.as_ref()?.to_str()
+    }
+
+    /// Store a long flag so the caller can borrow it.
+    /// We go through this trouble because matching an owned string is a pain.
+    fn set_long(&mut self, value: String) -> Arg {
+        self.last_flag = LastFlag::Long;
+        // Option::insert would work but it didn't exist in 1.40 (our MSRV)
+        self.long = None;
+        Arg::Long(&self.long.get_or_insert(value)[2..])
     }
 }
 
@@ -702,25 +702,6 @@ fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
         Some(Ok(ch)) => Ok(Some(ch)),
         Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", bytes[0]))),
         None => Ok(None),
-    }
-}
-
-/// Implementations of a few useful functions that didn't exist
-/// yet in Rust 1.40 (our MSRV, when non_exhaustive stabilized).
-///
-/// Not generic but shamelessly specialized for our needs.
-#[allow(dead_code)]
-mod backport {
-    /// [`str::split_once`]
-    pub(super) fn split_once(text: &str) -> Option<(&str, &str)> {
-        let mut iter = text.splitn(2, '=');
-        Some((iter.next()?, iter.next()?))
-    }
-
-    /// [`Option::insert`]
-    pub(super) fn insert(opt: &mut Option<String>, value: String) -> &mut String {
-        *opt = None;
-        opt.get_or_insert(value)
     }
 }
 
