@@ -709,6 +709,39 @@ mod tests {
     }
 
     #[test]
+    fn test_dash_args() -> Result<(), Error> {
+        // "--" should indicate the end of the flags
+        let mut p = parse("-x -- -y");
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.next()?.unwrap(), Value("-y".into()));
+        assert_eq!(p.next()?, None);
+
+        // ...unless it's an argument of a flag
+        let mut p = parse("-x -- -y");
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.value()?, "--");
+        assert_eq!(p.next()?.unwrap(), Short('y'));
+        assert_eq!(p.next()?, None);
+
+        // "-" is a valid value that should not be treated as a flag
+        let mut p = parse("-x - -y");
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.next()?.unwrap(), Value("-".into()));
+        assert_eq!(p.next()?.unwrap(), Short('y'));
+        assert_eq!(p.next()?, None);
+
+        // '-' is a silly and hard to use short flag, but other parsers treat
+        // it like a flag in this position
+        let mut p = parse("-x-y");
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.next()?.unwrap(), Short('-'));
+        assert_eq!(p.next()?.unwrap(), Short('y'));
+        assert_eq!(p.next()?, None);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_unicode() -> Result<(), Error> {
         let mut p = parse("-aµ --µ=10 µ --foo=µ");
         assert_eq!(p.next()?.unwrap(), Short('a'));
