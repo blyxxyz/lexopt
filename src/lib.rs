@@ -72,8 +72,25 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //     - Put in help/error messages (unprocessed &str)
 //     - Figure out variant of program (as in egrep vs grep) (strip dir and extension)
 //     - Get the plain argv[0] to do something else (unprocessed &OsStr)
+//   - Maybe just remove it, it's a weird part of the API
+//     - If someone really needs the bin name they can retrieve it manually and use `from_args`
+//     - But this depends on how easy it is to use it
+//       - Still no obvious general way to include it in help + error messages
 // - Reconsider use of word "option", maybe always call it "flag"?
 // - Update table in README before release
+// - Reconsider name
+//   - There is one other argument parser called optic: https://github.com/tkaden4/optic
+//   - And one program partially written in Rust: https://github.com/opticdev/optic
+//     - This one has no presence on crates.io but it still feels rude
+//   - Ideas:
+//     - optok (option tokenizer)
+//       - Near-unique:
+//         - https://github.com/tatHi/optok (not an arg parser)
+//     - argum
+//       - At least three arg parsers by this name exist
+//     - lexopt
+//       - Name of an algorithm
+//       - Otherwise unique
 
 /// A parser for command line arguments.
 pub struct Parser {
