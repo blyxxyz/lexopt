@@ -451,7 +451,13 @@ impl Arg<'_> {
 }
 
 /// An error during argument parsing.
-// TODO: document From impls
+///
+/// This implements [`From`] for `String` and `&str`, for easy ad-hoc error
+/// messages.
+///
+/// It also implements `From` for [`OsString`], as that's used as an error type
+/// by [`OsString::into_string`], so that method may be used with the try (`?`)
+/// operator.
 #[non_exhaustive]
 pub enum Error {
     /// An option argument was expected but was not found.
