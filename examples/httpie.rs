@@ -6,6 +6,7 @@
 
 use std::{path::PathBuf, str::FromStr};
 
+// TODO: how do we format parser.bin_name() into this?
 const HELP: &str = "\
 Usage: http [OPTION]... [METHOD] URL [REQUEST_ITEM]...
 
@@ -140,11 +141,7 @@ fn parse_args() -> Result<Args, optic::Error> {
         method,
         url,
         request_items,
-        bin_name: parser
-            .bin_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("http")
-            .to_owned(),
+        bin_name: parser.bin_name().unwrap_or("http").to_owned(),
     })
 }
 

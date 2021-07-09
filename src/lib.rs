@@ -59,11 +59,7 @@
 #![warn(missing_docs)]
 #![allow(clippy::should_implement_trait)]
 
-use std::{
-    ffi::{OsStr, OsString},
-    fmt::Display,
-    str::FromStr,
-};
+use std::{ffi::OsString, fmt::Display, str::FromStr};
 
 // TODO:
 // - Idiomatic way to find heterogenous positional arguments?
@@ -410,8 +406,25 @@ impl Parser {
     /// Get the name that was used to invoke the program.
     ///
     /// Only available if constructed by [`Parser::from_env`].
-    pub fn bin_name(&self) -> Option<&OsStr> {
-        self.bin_name.as_deref()
+    pub fn bin_name(&self) -> Option<&str> {
+        // We return a &str here, not an &OsStr. If argv[0] is not unicode
+        // we return None.
+        // Some considerations:
+        // - Random filenames may be garbled, but you'd hopefully install an
+        //   executable in a sane place.
+        // - The intention of this method is to be used in help text and
+        //   error messages. For that you'd always want a &str anyway.
+        // - The fact that it's an Option will hopefully nudge people towards
+        //   providing a default with unwrap_or().
+        // - Someone might be tempted to use this to find the location of the
+        //   executable. But that's a bad idea anyway:
+        //   - If it's a relative path you have to resolve it
+        //   - If it's a plain name you have to look it up in $PATH
+        //   - argv[0] is not even guaranteed to hold the "real" name
+        //   - It's not portable, and specific platforms have better solutions
+        //     like /proc/self/exe
+        //   So let's not do anything to support that use case.
+        self.bin_name.as_ref()?.to_str()
     }
 }
 
