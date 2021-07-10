@@ -373,37 +373,8 @@ impl Parser {
     /// A value is collected even if it looks like a flag
     /// (i.e., starts with `-`).
     pub fn value(&mut self) -> Result<OsString, Error> {
-        if let Some(value) = self.long_value.take() {
+        if let Some(value) = self.optional_value() {
             return Ok(value);
-        }
-
-        if let Some((arg, pos)) = self.shorts.take() {
-            if pos < arg.len() {
-                #[cfg(any(unix, target_os = "wasi"))]
-                {
-                    #[cfg(unix)]
-                    use std::os::unix::ffi::OsStringExt;
-                    #[cfg(target_os = "wasi")]
-                    use std::os::wasi::ffi::OsStringExt;
-                    return Ok(OsString::from_vec(arg[pos..].into()));
-                }
-                #[cfg(not(any(unix, target_os = "wasi")))]
-                {
-                    let arg = String::from_utf8(arg[pos..].into())
-                        .expect("short flag args on exotic platforms must be unicode");
-                    return Ok(arg.into());
-                }
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some((arg, pos)) = self.shorts_utf16.take() {
-                if pos < arg.len() {
-                    use std::os::windows::ffi::OsStringExt;
-                    return Ok(OsString::from_wide(&arg[pos..]));
-                }
-            }
         }
 
         if let Some(value) = self.source.next() {
@@ -416,6 +387,48 @@ impl Parser {
             LastFlag::Long => self.long.clone(),
         };
         Err(Error::MissingValue { flag })
+    }
+
+    /// Get a value only if it's concatenated to a flag, as in `-fvalue` or
+    /// `--flag=value`.
+    ///
+    /// I'm unsure about making this public. It'd contribute to parity with
+    /// GNU getopt but it'd also detract from the cleanness of the interface.
+    fn optional_value(&mut self) -> Option<OsString> {
+        if let Some(value) = self.long_value.take() {
+            return Some(value);
+        }
+
+        if let Some((arg, pos)) = self.shorts.take() {
+            if pos < arg.len() {
+                #[cfg(any(unix, target_os = "wasi"))]
+                {
+                    #[cfg(unix)]
+                    use std::os::unix::ffi::OsStringExt;
+                    #[cfg(target_os = "wasi")]
+                    use std::os::wasi::ffi::OsStringExt;
+                    return Some(OsString::from_vec(arg[pos..].into()));
+                }
+                #[cfg(not(any(unix, target_os = "wasi")))]
+                {
+                    let arg = String::from_utf8(arg[pos..].into())
+                        .expect("short flag args on exotic platforms must be unicode");
+                    return Some(arg.into());
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some((arg, pos)) = self.shorts_utf16.take() {
+                if pos < arg.len() {
+                    use std::os::windows::ffi::OsStringExt;
+                    return Some(OsString::from_wide(&arg[pos..]));
+                }
+            }
+        }
+
+        None
     }
 
     /// Create a parser from the environment using [`std::env::args_os`].
