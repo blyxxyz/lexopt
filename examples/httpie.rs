@@ -109,7 +109,7 @@ fn parse_args() -> Result<Args, optic::Error> {
                 // we can call .into_string() (part of the stdlib).
                 args.push(arg.into_string()?);
             }
-            _ => return Err(arg.error()),
+            _ => return Err(arg.unexpected()),
         }
     }
 

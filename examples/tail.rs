@@ -28,7 +28,7 @@ fn parse_args() -> Result<Args, optic::Error> {
                 println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
                 std::process::exit(0);
             }
-            _ => return Err(arg.error()),
+            _ => return Err(arg.unexpected()),
         }
     }
     Ok(Args {

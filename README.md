@@ -41,7 +41,7 @@ fn parse_args() -> Result<Args, optic::Error> {
                 println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
                 std::process::exit(0);
             }
-            _ => return Err(arg.error()),
+            _ => return Err(arg.unexpected()),
         }
     }
     Ok(Args {
@@ -68,7 +68,7 @@ Let's walk through this:
   - The standard `.into_string()` method can decode it into a plain `String` (not shown).
 - `Value` indicates a free-standing argument. In this case, a filename.
   - It also contains an `OsString`, which is easily converted into a [`PathBuf`](https://doc.rust-lang.org/std/path/struct.PathBuf.html).
-- If we don't know what to do with an argument we use `return Err(arg.error())` to turn it into an error message.
+- If we don't know what to do with an argument we use `return Err(arg.unexpected())` to turn it into an error message.
 - Strings can be promoted to errors for custom error messages.
 
 This covers almost all the functionality in the library. Optic does very little for you.

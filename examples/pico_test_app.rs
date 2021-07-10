@@ -58,7 +58,7 @@ fn parse_args() -> Result<AppArgs, optic::Error> {
             Long("opt-number") => opt_number = Some(parser.value()?.parse()?),
             Long("width") => width = parser.value()?.parse_with(parse_width)?,
             Value(path) if input.is_none() => input = Some(path.into()),
-            _ => return Err(arg.error()),
+            _ => return Err(arg.unexpected()),
         }
     }
     Ok(AppArgs {

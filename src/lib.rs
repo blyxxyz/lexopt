@@ -38,7 +38,7 @@
 //!                 println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
 //!                 std::process::exit(0);
 //!             }
-//!             _ => return Err(arg.error()),
+//!             _ => return Err(arg.unexpected()),
 //!         }
 //!     }
 //!     Ok(Args {
@@ -492,8 +492,7 @@ impl Parser {
 
 impl Arg<'_> {
     /// Convert an unexpected argument into an error.
-    // TODO: rename to unexpected()?
-    pub fn error(self) -> Error {
+    pub fn unexpected(self) -> Error {
         match self {
             Arg::Short(short) => Error::UnexpectedFlag(format!("-{}", short)),
             Arg::Long(long) => Error::UnexpectedFlag(format!("--{}", long)),
