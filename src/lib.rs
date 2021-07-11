@@ -67,26 +67,18 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //     - Can we support that without making it easy to forget about them?
 // - Fuzzing on other platforms
 // - Pin down/document (formally or informally) recovery guarantees
-// - Figure out how bin_name() should work
-//   - At least three use cases:
-//     - Put in help/error messages (unprocessed &str)
-//     - Figure out variant of program (as in egrep vs grep) (strip dir and extension)
-//     - Get the plain argv[0] to do something else (unprocessed &OsStr)
-//   - Maybe just remove it, it's a weird part of the API
-//     - If someone really needs the bin name they can retrieve it manually and use `from_args`
-//     - But this depends on how easy it is to use it
-//       - Still no obvious general way to include it in help + error messages
 // - Reconsider use of word "option", maybe always call it "flag"?
 // - Update table in README before release
 // - Rename to lexopt
 //   - no significant name collision
 //   - acknowledges similarity to getopt
 //     - while also acknowledging it doesn't parse but lex
+// - Design document
+// - Encourage boxed error return?
 
 /// A parser for command line arguments.
 pub struct Parser {
     source: Box<dyn Iterator<Item = OsString> + 'static>,
-    bin_name: Option<OsString>,
     // The current string of short flags being processed
     shorts: Option<(Vec<u8>, usize)>,
     #[cfg(windows)]
@@ -107,7 +99,6 @@ impl std::fmt::Debug for Parser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut f = f.debug_struct("Parser");
         f.field("source", &"<iterator>")
-            .field("bin_name", &self.bin_name)
             .field("shorts", &self.shorts);
         #[cfg(windows)]
         f.field("shorts_utf16", &self.shorts_utf16);
@@ -425,10 +416,9 @@ impl Parser {
     /// Create a parser from the environment using [`std::env::args_os`].
     pub fn from_env() -> Parser {
         let mut source = std::env::args_os();
-        let bin_name = source.next();
+        source.next();
         Parser {
             source: Box::new(source),
-            bin_name,
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -449,7 +439,6 @@ impl Parser {
     {
         Parser {
             source: Box::new(args.into_iter().map(Into::into)),
-            bin_name: None,
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -458,30 +447,6 @@ impl Parser {
             last_flag: LastFlag::None,
             finished_opts: false,
         }
-    }
-
-    /// Get the name that was used to invoke the program.
-    ///
-    /// Only available if constructed by [`Parser::from_env`].
-    pub fn bin_name(&self) -> Option<&str> {
-        // We return a &str here, not an &OsStr. If argv[0] is not unicode
-        // we return None.
-        // Some considerations:
-        // - Random filenames may be garbled, but you'd hopefully install an
-        //   executable in a sane place.
-        // - The intention of this method is to be used in help text and
-        //   error messages. For that you'd always want a &str anyway.
-        // - The fact that it's an Option will hopefully nudge people towards
-        //   providing a default with unwrap_or().
-        // - Someone might be tempted to use this to find the location of the
-        //   executable. But that's a bad idea anyway:
-        //   - If it's a relative path you have to resolve it
-        //   - If it's a plain name you have to look it up in $PATH
-        //   - argv[0] is not even guaranteed to hold the "real" name
-        //   - It's not portable, and specific platforms have better solutions
-        //     like /proc/self/exe
-        //   So let's not do anything to support that use case.
-        self.bin_name.as_ref()?.to_str()
     }
 
     /// Store a long flag so the caller can borrow it.
