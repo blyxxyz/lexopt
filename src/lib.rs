@@ -78,19 +78,10 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //       - Still no obvious general way to include it in help + error messages
 // - Reconsider use of word "option", maybe always call it "flag"?
 // - Update table in README before release
-// - Reconsider name
-//   - There is one other argument parser called optic: https://github.com/tkaden4/optic
-//   - And one program partially written in Rust: https://github.com/opticdev/optic
-//     - This one has no presence on crates.io but it still feels rude
-//   - Ideas:
-//     - optok (option tokenizer)
-//       - Near-unique:
-//         - https://github.com/tatHi/optok (not an arg parser)
-//     - argum
-//       - At least three arg parsers by this name exist
-//     - lexopt
-//       - Name of an algorithm
-//       - Otherwise unique
+// - Rename to lexopt
+//   - no significant name collision
+//   - acknowledges similarity to getopt
+//     - while also acknowledging it doesn't parse but lex
 
 /// A parser for command line arguments.
 pub struct Parser {
