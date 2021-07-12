@@ -73,8 +73,12 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //   - no significant name collision
 //   - acknowledges similarity to getopt
 //     - while also acknowledging it doesn't parse but lex
-// - Design document
-// - Encourage boxed error return?
+// - fuzz in CI
+// - rename Parser
+//   - Lexer
+//   - Opts
+//   - ...
+// - Remove tail.rs usage in favor of hello.rs
 
 /// A parser for command line arguments.
 pub struct Parser {
