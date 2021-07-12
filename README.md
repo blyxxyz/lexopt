@@ -11,51 +11,57 @@ Optic is:
 
 ## Example
 ```rust
-#[derive(Debug)]
 struct Args {
-    follow: bool,
-    number: u64,
-    file: std::path::PathBuf,
+    thing: String,
+    number: u32,
+    shout: bool,
 }
 
 fn parse_args() -> Result<Args, optic::Error> {
     use optic::prelude::*;
 
-    let mut follow = false;
-    let mut number = 10;
-    let mut file = None;
-
+    let mut thing = None;
+    let mut number = 1;
+    let mut shout = false;
     let mut parser = optic::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
-            Short('f') | Long("follow") => {
-                follow = true;
-            }
-            Short('n') => {
+            Short('n') | Long("number") => {
                 number = parser.value()?.parse()?;
             }
-            Value(value) if file.is_none() => {
-                file = Some(value.into());
+            Long("shout") => {
+                shout = true;
+            }
+            Value(val) if thing.is_none() => {
+                thing = Some(val.into_string()?);
             }
             Long("help") => {
-                println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
+                println!("Usage: hello [-n|--number=NUM] [--shout] THING");
                 std::process::exit(0);
             }
             _ => return Err(arg.unexpected()),
         }
     }
+
     Ok(Args {
-        follow,
+        thing: thing.ok_or("missing argument THING")?,
         number,
-        file: file.ok_or("missing FILE argument")?,
+        shout,
     })
 }
 
 fn main() -> Result<(), optic::Error> {
     let args = parse_args()?;
-    println!("{:#?}", args);
+    let mut message = format!("Hello {}", args.thing);
+    if args.shout {
+        message = message.to_uppercase();
+    }
+    for _ in 0..args.number {
+        println!("{}", message);
+    }
     Ok(())
 }
+
 ```
 
 Let's walk through this:
@@ -65,9 +71,9 @@ Let's walk through this:
 - To get the value that belongs to an option (like `10` in `-n 10`) we call `parser.value()`.
   - This returns a standard [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html).
   - For convenience, `use optic::prelude::*` adds a `.parse()` method, analogous to [`str::parse`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
-  - The standard `.into_string()` method can decode it into a plain `String` (not shown).
 - `Value` indicates a free-standing argument. In this case, a filename.
-  - It also contains an `OsString`, which is easily converted into a [`PathBuf`](https://doc.rust-lang.org/std/path/struct.PathBuf.html).
+  - It also contains an `OsString`.
+    - The standard `.into_string()` method can decode it into a plain `String`.
 - If we don't know what to do with an argument we use `return Err(arg.unexpected())` to turn it into an error message.
 - Strings can be promoted to errors for custom error messages.
 

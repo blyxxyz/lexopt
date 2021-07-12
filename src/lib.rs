@@ -8,49 +8,54 @@
 //!
 //! ## Example
 //! ```no_run
-//! #[derive(Debug)]
 //! struct Args {
-//!     follow: bool,
-//!     number: u64,
-//!     file: std::path::PathBuf,
+//!     thing: String,
+//!     number: u32,
+//!     shout: bool,
 //! }
 //!
 //! fn parse_args() -> Result<Args, optic::Error> {
 //!     use optic::prelude::*;
 //!
-//!     let mut follow = false;
-//!     let mut number = 10;
-//!     let mut file = None;
-//!
+//!     let mut thing = None;
+//!     let mut number = 1;
+//!     let mut shout = false;
 //!     let mut parser = optic::Parser::from_env();
 //!     while let Some(arg) = parser.next()? {
 //!         match arg {
-//!             Short('f') | Long("follow") => {
-//!                 follow = true;
-//!             }
-//!             Short('n') => {
+//!             Short('n') | Long("number") => {
 //!                 number = parser.value()?.parse()?;
 //!             }
-//!             Value(value) if file.is_none() => {
-//!                 file = Some(value.into());
+//!             Long("shout") => {
+//!                 shout = true;
+//!             }
+//!             Value(val) if thing.is_none() => {
+//!                 thing = Some(val.into_string()?);
 //!             }
 //!             Long("help") => {
-//!                 println!("USAGE: tail [-f|--follow] [-n NUM] FILE");
+//!                 println!("Usage: hello [-n|--number=NUM] [--shout] THING");
 //!                 std::process::exit(0);
 //!             }
 //!             _ => return Err(arg.unexpected()),
 //!         }
 //!     }
+//!
 //!     Ok(Args {
-//!         follow,
+//!         thing: thing.ok_or("missing argument THING")?,
 //!         number,
-//!         file: file.ok_or("missing FILE argument")?,
+//!         shout,
 //!     })
 //! }
 //!
 //! fn main() -> Result<(), optic::Error> {
 //!     let args = parse_args()?;
-//!     println!("{:#?}", args);
+//!     let mut message = format!("Hello {}", args.thing);
+//!     if args.shout {
+//!         message = message.to_uppercase();
+//!     }
+//!     for _ in 0..args.number {
+//!         println!("{}", message);
+//!     }
 //!     Ok(())
 //! }
 //! ```
@@ -78,7 +83,6 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //   - Lexer
 //   - Opts
 //   - ...
-// - Remove tail.rs usage in favor of hello.rs
 
 /// A parser for command line arguments.
 pub struct Parser {
