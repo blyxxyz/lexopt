@@ -67,14 +67,17 @@
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
 // TODO:
-// - Idiomatic way to find heterogenous positional arguments?
-//   - Getopt saves positional arguments for the end
-//     - Can we support that without making it easy to forget about them?
+// - Example of `if foo.is_none()` pattern for positional arguments
+//   - HTTPie example is too weird, should be replaced by something elses
+//     - Perhaps something with subcommands to solve two problems at once
 // - Fuzzing on other platforms
-// - Pin down/document (formally or informally) recovery guarantees
-// - Reconsider use of word "option", maybe always call it "flag"?
+// - Pin down terminology
+//   - Flag vs option
+//   - Free-standing argument versus arg versus value
+//   - Value versus argument versus option-argument versus value
 // - Update table in README before release
 // - fuzz in CI
+// - Test wasm32-unknown-unknown
 // - rename Parser
 //   - Lexer
 //   - Opts
@@ -144,12 +147,19 @@ pub enum Arg<'a> {
 impl Parser {
     /// Get the next flag or free-standing argument.
     ///
-    /// This will return an [`Error::UnexpectedValue`] if the last flag had a
+    /// A return value of `Ok(None)` means the command line has been exhausted.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnexpectedValue`] is returned if the last flag had a
     /// value that hasn't been consumed, as in `--flag=value`.
     ///
-    /// It will also return an error for flags that are not valid unicode.
+    /// [`Error::UnexpectedFlag`] is returned if a flag is not valid unicode.
     ///
-    /// It will return `Ok(None)` if the command line has been exhausted.
+    /// [`Error::NonUnicodeValue`] is returned for flag-arguments with
+    /// invalid unicode on exotic platforms (not Unix or Windows or WASI).
+    ///
+    /// It's possible to continue parsing after an error (but this is rarely useful).
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
@@ -351,13 +361,16 @@ impl Parser {
     /// Get a value for a flag.
     ///
     /// This function should be called right after seeing a flag that
-    /// expects a value. Free-standing arguments are collected using
-    /// [`next()`][Parser::next].
-    ///
-    /// It fails if the end of the command line is reached.
+    /// expects a value. Free-standing arguments are instead collected
+    /// using [`next()`][Parser::next].
     ///
     /// A value is collected even if it looks like a flag
     /// (i.e., starts with `-`).
+    ///
+    /// # Errors
+    ///
+    /// An [`Error::MissingValue`] is returned if the end of the command
+    /// line is reached.
     pub fn value(&mut self) -> Result<OsString, Error> {
         if let Some(value) = self.optional_value() {
             return Ok(value);
