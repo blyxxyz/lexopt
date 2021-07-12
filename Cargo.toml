@@ -1,5 +1,5 @@
 [package]
-name = "optic"
+name = "lexopt"
 version = "0.1.0"
 authors = ["Jan Verbeek <jan.verbeek@posteo.nl>"]
 description = "Minimalist pedantic command line parser"

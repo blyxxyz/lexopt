@@ -22,7 +22,7 @@ fuzz_target!(|data: &[u8]| {
         .map(Into::into)
         .map(OsString::from_vec)
         .collect();
-    let mut p = optic::Parser::from_args(data);
+    let mut p = lexopt::Parser::from_args(data);
     loop {
         if decisions & 1 == 0 {
             match p.next() {

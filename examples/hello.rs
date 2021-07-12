@@ -4,13 +4,13 @@ struct Args {
     shout: bool,
 }
 
-fn parse_args() -> Result<Args, optic::Error> {
-    use optic::prelude::*;
+fn parse_args() -> Result<Args, lexopt::Error> {
+    use lexopt::prelude::*;
 
     let mut thing = None;
     let mut number = 1;
     let mut shout = false;
-    let mut parser = optic::Parser::from_env();
+    let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('n') | Long("number") => {
@@ -37,7 +37,7 @@ fn parse_args() -> Result<Args, optic::Error> {
     })
 }
 
-fn main() -> Result<(), optic::Error> {
+fn main() -> Result<(), lexopt::Error> {
     let args = parse_args()?;
     let mut message = format!("Hello {}", args.thing);
     if args.shout {

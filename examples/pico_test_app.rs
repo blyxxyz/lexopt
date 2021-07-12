@@ -33,21 +33,21 @@ fn parse_width(s: &str) -> Result<u32, String> {
     }
 }
 
-fn main() -> Result<(), optic::Error> {
+fn main() -> Result<(), lexopt::Error> {
     let args = parse_args()?;
     println!("{:#?}", args);
     Ok(())
 }
 
-fn parse_args() -> Result<AppArgs, optic::Error> {
-    use optic::prelude::*;
+fn parse_args() -> Result<AppArgs, lexopt::Error> {
+    use lexopt::prelude::*;
 
     let mut number = None;
     let mut opt_number = None;
     let mut width = 10;
     let mut input = None;
 
-    let mut parser = optic::Parser::from_env();
+    let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => {

@@ -14,13 +14,13 @@
 //!     shout: bool,
 //! }
 //!
-//! fn parse_args() -> Result<Args, optic::Error> {
-//!     use optic::prelude::*;
+//! fn parse_args() -> Result<Args, lexopt::Error> {
+//!     use lexopt::prelude::*;
 //!
 //!     let mut thing = None;
 //!     let mut number = 1;
 //!     let mut shout = false;
-//!     let mut parser = optic::Parser::from_env();
+//!     let mut parser = lexopt::Parser::from_env();
 //!     while let Some(arg) = parser.next()? {
 //!         match arg {
 //!             Short('n') | Long("number") => {
@@ -47,7 +47,7 @@
 //!     })
 //! }
 //!
-//! fn main() -> Result<(), optic::Error> {
+//! fn main() -> Result<(), lexopt::Error> {
 //!     let args = parse_args()?;
 //!     let mut message = format!("Hello {}", args.thing);
 //!     if args.shout {
@@ -74,10 +74,6 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 // - Pin down/document (formally or informally) recovery guarantees
 // - Reconsider use of word "option", maybe always call it "flag"?
 // - Update table in README before release
-// - Rename to lexopt
-//   - no significant name collision
-//   - acknowledges similarity to getopt
-//     - while also acknowledging it doesn't parse but lex
 // - fuzz in CI
 // - rename Parser
 //   - Lexer
@@ -604,7 +600,7 @@ mod private {
 ///   ([`Error::NonUnicodeValue`])
 /// - The value can be decoded, but parsing fails ([`Error::ParsingFailed`])
 ///
-/// If parsing fails the error will be wrapped in optic's own [`Error`] type.
+/// If parsing fails the error will be wrapped in lexopt's own [`Error`] type.
 pub trait ValueExt: private::Sealed {
     /// Decode the value and parse it using [`FromStr`].
     ///
@@ -662,8 +658,8 @@ impl ValueExt for OsString {
 /// If this is used it's best to import it inside a function, not in module
 /// scope. For example:
 /// ```ignore
-/// fn parse_args() -> Result<Args, optic::Error> {
-///     use optic::prelude::*;
+/// fn parse_args() -> Result<Args, lexopt::Error> {
+///     use lexopt::prelude::*;
 ///     ...
 /// }
 /// ```

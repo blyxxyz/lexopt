@@ -42,8 +42,8 @@ struct Args {
     request_items: Vec<RequestItem>,
 }
 
-fn parse_args() -> Result<Args, optic::Error> {
-    use optic::prelude::*;
+fn parse_args() -> Result<Args, lexopt::Error> {
+    use lexopt::prelude::*;
 
     let mut json = true;
     let mut form = false;
@@ -55,7 +55,7 @@ fn parse_args() -> Result<Args, optic::Error> {
     let mut url = None;
     let mut request_items = Vec::new();
 
-    let mut parser = optic::Parser::from_env();
+    let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('j') | Long("json") => {
@@ -209,7 +209,7 @@ impl FromStr for RequestItem {
     }
 }
 
-fn main() -> Result<(), optic::Error> {
+fn main() -> Result<(), lexopt::Error> {
     let args = parse_args()?;
     println!("{:#?}", args);
     Ok(())
