@@ -863,7 +863,7 @@ mod tests {
             assert_eq!(p.value()?, bad_string("@@@"));
 
             assert_eq!(q.next()?.unwrap(), Short('💣'));
-            assert_eq!(dbg!(q.value())?, bad_string("@@@"));
+            assert_eq!(q.value()?, bad_string("@@@"));
 
             assert_eq!(r.next()?.unwrap(), Short('f'));
             assert_matches!(r.next(), Err(Error::UnexpectedFlag(_)));
