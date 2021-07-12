@@ -985,7 +985,6 @@ mod tests {
             for ch in text.chars() {
                 if ch == '@' {
                     out.push(0xD800);
-                    out.push(0xFFFF);
                 } else {
                     let mut buf = [0; 2];
                     out.extend(&*ch.encode_utf16(&mut buf));
