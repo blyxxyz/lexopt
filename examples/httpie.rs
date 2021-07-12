@@ -37,7 +37,7 @@ struct Args {
     proxies: Vec<Proxy>,
 
     // Positional arguments with complex logic.
-    method: Option<String>,
+    method: String,
     url: Url,
     request_items: Vec<RequestItem>,
 }
@@ -51,9 +51,11 @@ fn parse_args() -> Result<Args, optic::Error> {
     let mut pretty = None;
     let mut stream = false;
     let mut proxies = Vec::new();
+    let mut method = None;
+    let mut url = None;
+    let mut request_items = Vec::new();
 
     let mut parser = optic::Parser::from_env();
-    let mut args = Vec::new();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('j') | Long("json") => {
@@ -100,32 +102,26 @@ fn parse_args() -> Result<Args, optic::Error> {
                 print!("{}", HELP);
                 std::process::exit(0);
             }
+            // The logic here is:
+            // - If the first argument looks like an HTTP method then it is one and the
+            //   second is the URL.
+            // - Otherwise the first argument is the URL.
+            // - The other arguments are request items.
+            Value(arg) if url.is_none() => {
+                // If we want a plain String we can call .into_string() (part of the stdlib).
+                let arg = arg.into_string()?;
+                if method.is_none() && arg.chars().all(|c| c.is_ascii_alphabetic()) {
+                    method = Some(arg.to_uppercase());
+                } else {
+                    url = Some(arg.parse()?);
+                }
+            }
             Value(arg) => {
-                // If we want a plain String for later processing then
-                // we can call .into_string() (part of the stdlib).
-                args.push(arg.into_string()?);
+                request_items.push(arg.parse()?);
             }
             _ => return Err(arg.unexpected()),
         }
     }
-
-    // We collected positional arguments as we went.
-    // Now we turn them into an iterator again to process them separately.
-    let mut args = args.into_iter();
-    let method;
-    let url;
-    match args.next() {
-        None => return Err("missing URL".into()),
-        Some(text) if !text.is_empty() && text.chars().all(|c| c.is_ascii_alphabetic()) => {
-            method = Some(text);
-            url = args.next().ok_or("missing URL")?.parse()?;
-        }
-        Some(text) => {
-            method = Some("GET".into());
-            url = text.parse()?;
-        }
-    }
-    let request_items = args.map(|s| s.parse()).collect::<Result<_, _>>()?;
 
     Ok(Args {
         json,
@@ -134,8 +130,8 @@ fn parse_args() -> Result<Args, optic::Error> {
         pretty,
         stream,
         proxies,
-        method,
-        url,
+        method: method.unwrap_or_else(|| "GET".to_owned()),
+        url: url.ok_or("missing URL")?,
         request_items,
     })
 }
