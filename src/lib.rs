@@ -67,16 +67,6 @@
 
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
-// TODO:
-// - Pin down terminology
-//   - Free-standing argument versus arg versus value
-//   - Value versus argument versus option-argument
-// - Update table in README before release
-// - rename Parser
-//   - Lexer
-//   - Opts
-//   - ...
-
 /// A parser for command line arguments.
 pub struct Parser {
     source: Box<dyn Iterator<Item = OsString> + 'static>,
@@ -126,24 +116,24 @@ enum LastOption {
     Long,
 }
 
-/// A command line argument found by [`Parser`], either an option or a free-standing value.
+/// A command line argument found by [`Parser`], either an option or a positional argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg<'a> {
     /// A short option, e.g. `-q`.
     Short(char),
-    /// A long option, e.g. `--verbose`.
+    /// A long option, e.g. `--verbose`. (The dashes are not included.)
     Long(&'a str),
-    /// A free-standing argument, e.g. `/dev/null`.
+    /// A positional argument, e.g. `/dev/null`.
     Value(OsString),
 }
 
 impl Parser {
-    /// Get the next option or free-standing argument.
+    /// Get the next option or positional argument.
     ///
     /// A return value of `Ok(None)` means the command line has been exhausted.
     ///
     /// Options that are not valid unicode are transformed with replacement
-    /// characters as by [`String::from_utf8_lossy`] .
+    /// characters as by [`String::from_utf8_lossy`].
     ///
     /// # Errors
     ///
@@ -338,7 +328,7 @@ impl Parser {
     /// Get a value for an option.
     ///
     /// This function should be called right after seeing an option that
-    /// expects a value. Free-standing arguments are instead collected
+    /// expects a value. Positional arguments are instead collected
     /// using [`next()`][Parser::next].
     ///
     /// A value is collected even if it looks like an option
@@ -466,10 +456,10 @@ impl<'a> Arg<'a> {
 
 /// An error during argument parsing.
 ///
-/// This implements [`From`] for `String` and `&str`, for easy ad-hoc error
+/// This implements `From<String>` and `From<&str>`, for easy ad-hoc error
 /// messages.
 ///
-/// It also implements `From` for [`OsString`], as that's used as an error type
+/// It also implements `From<OsString>`, as that's used as an error type
 /// by [`OsString::into_string`], so that method may be used with the try (`?`)
 /// operator.
 //
@@ -487,7 +477,7 @@ pub enum Error {
     /// An unexpected option was found.
     UnexpectedOption(String),
 
-    /// A free-standing argument was found when none was expected.
+    /// A positional argument was found when none was expected.
     UnexpectedArgument(OsString),
 
     /// An option had a value when none was expected.
@@ -655,7 +645,7 @@ impl ValueExt for OsString {
 /// and adds convenience methods to [`OsString`].
 ///
 /// If this is used it's best to import it inside a function, not in module
-/// scope. For example:
+/// scope:
 /// ```ignore
 /// fn parse_args() -> Result<Args, lexopt::Error> {
 ///     use lexopt::prelude::*;

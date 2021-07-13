@@ -16,7 +16,7 @@ Some programs have options with optional arguments. `-fvalue` counts, `-f value`
 
 It is sometimes useful to get argv[0], the command name. `Parser::from_env` currently discards it. Two use cases are help and error messages, where a decoded string is appropriate, but an `&OsStr` would be lossless. For now it can be extracted manually before calling `Parser::from_args`.
 
-POSIX [recommends](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html#tag_12_02) that no more options are parsed after the first free-standing argument. GNU getopt does this if the $POSIXLY_CORRECT environment variable is set. It could be supported by setting `finished_opts` when the first `Arg::Value` is found.
+POSIX [recommends](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html#tag_12_02) that no more options are parsed after the first positional argument. GNU getopt does this if the $POSIXLY_CORRECT environment variable is set. It could be supported by setting `finished_opts` when the first `Arg::Value` is found.
 
 POSIX also has a notion of subarguments, combining multiple values in a single option-argument by separating them with commas or spaces. This is easy enough to hand-roll for valid unicode (`.into_string()?.split(...)`) but we could provide a function that does it on `OsString`s. I can't think of a case where values may not be valid unicode but definitely don't contain commas or spaces, though.
 
