@@ -8,7 +8,10 @@ const fs = require("fs");
 
 const directory = "target/wasm32-unknown-unknown/debug/deps";
 
-child_process.execSync("cargo test --target wasm32-unknown-unknown --no-run");
+child_process.execSync("cargo clean --target wasm32-unknown-unknown");
+child_process.execSync(
+    "cargo +1.31 test --lib --target wasm32-unknown-unknown --no-run"
+);
 
 let path;
 for (let name of fs.readdirSync(directory)) {
@@ -17,6 +20,7 @@ for (let name of fs.readdirSync(directory)) {
     }
 }
 
+console.log(`Running ${path}`);
 let code = fs.readFileSync(path);
 let mod = new WebAssembly.Module(code);
 let instance = new WebAssembly.Instance(mod);
