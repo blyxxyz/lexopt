@@ -109,7 +109,7 @@ impl std::fmt::Debug for Parser {
 ///
 /// Our short option storage is cleared more aggressively, so we do need to
 /// duplicate that.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum LastOption {
     None,
     Short(char),
@@ -142,6 +142,8 @@ impl Parser {
     ///
     /// It's possible to continue parsing after an error (but this is rarely useful).
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
+        self.check_state();
+
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
             return Err(Error::UnexpectedValue {
@@ -341,6 +343,8 @@ impl Parser {
     /// An [`Error::MissingValue`] is returned if the end of the command
     /// line is reached.
     pub fn value(&mut self) -> Result<OsString, Error> {
+        self.check_state();
+
         if let Some(value) = self.optional_value() {
             return Ok(value);
         }
@@ -442,6 +446,51 @@ impl Parser {
         // Option::insert would work but it didn't exist in 1.31 (our MSRV)
         self.long = None;
         Arg::Long(&self.long.get_or_insert(value)[2..])
+    }
+
+    /// Some basic sanity checks for the internal state.
+    ///
+    /// Particularly nice for fuzzing.
+    fn check_state(&self) {
+        if let Some((ref arg, pos)) = self.shorts {
+            assert!(pos <= arg.len());
+            if pos > 1 {
+                assert!(self.last_option != LastOption::None);
+                assert!(self.last_option != LastOption::Long);
+            }
+            assert!(self.long_value.is_none());
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some((ref arg, pos)) = self.shorts_utf16 {
+                assert!(pos <= arg.len());
+                if pos > 1 {
+                    assert!(self.last_option != LastOption::None);
+                    assert!(self.last_option != LastOption::Long);
+                }
+                assert!(self.shorts.is_none());
+                assert!(self.long_value.is_none());
+            }
+        }
+
+        match self.last_option {
+            LastOption::None => {
+                assert!(self.long.is_none());
+                assert!(self.long_value.is_none());
+            }
+            LastOption::Short(_) => {
+                assert!(self.long_value.is_none());
+            }
+            LastOption::Long => {
+                assert!(self.long.is_some());
+            }
+        }
+
+        if self.long_value.is_some() {
+            assert!(self.long.is_some());
+            assert!(self.last_option == LastOption::Long);
+        }
     }
 }
 
