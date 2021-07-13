@@ -1,4 +1,4 @@
-//! A simple command line tokenizer.
+//! A pathologically simple command line tokenizer.
 //!
 //! Most argument parsers are declarative: you tell them what to parse,
 //! and they do it.
@@ -70,7 +70,7 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 // TODO:
 // - Pin down terminology
 //   - Free-standing argument versus arg versus value
-//   - Value versus argument versus option-argument versus value
+//   - Value versus argument versus option-argument
 // - Update table in README before release
 // - rename Parser
 //   - Lexer
@@ -115,8 +115,7 @@ impl std::fmt::Debug for Parser {
 /// an expected value is not found.
 ///
 /// A long option can be recovered from the `long` field, so that variant doesn't
-/// need to contain data. (We sometimes clear the field, but only for the
-/// opposite error (a value is found but not expected), so that's fine.)
+/// need to contain data.
 ///
 /// Our short option storage is cleared more aggressively, so we do need to
 /// duplicate that.
@@ -464,7 +463,7 @@ impl Parser {
     /// We go through this trouble because matching an owned string is a pain.
     fn set_long(&mut self, value: String) -> Arg {
         self.last_option = LastOption::Long;
-        // Option::insert would work but it didn't exist in 1.40 (our MSRV)
+        // Option::insert would work but it didn't exist in 1.31 (our MSRV)
         self.long = None;
         Arg::Long(&self.long.get_or_insert(value)[2..])
     }
@@ -693,7 +692,7 @@ pub mod prelude {
 /// The rest of the bytestring does not have to be valid unicode.
 fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
     // We only need the first 4 bytes
-    let bytes = &bytes[..bytes.len().min(4)];
+    let bytes = bytes.get(..4).unwrap_or(bytes);
     let text = match std::str::from_utf8(bytes) {
         Ok(text) => text,
         Err(err) if err.valid_up_to() > 0 => {

@@ -1,14 +1,13 @@
 # Lexopt
 
-Lexopt is an *imperative* argument parser. Most parsers are declarative: they are told which arguments to expect. Lexopt instead returns options as it encounters them and leaves their handling up to you.
-
-A goal is to have the absolute simplest possible design that's still correct.
+Lexopt is the simplest possible argument parser that's still correct. It's so simple that it's a bit tedious to use.
 
 Lexopt is:
 - Small: one file, no dependencies, no macros. Easy to audit or vendor.
-- Correct: common conventions are supported and ambiguity is avoided. Tested and fuzzed.
+- Correct: standard conventions are supported and ambiguity is avoided. Tested and fuzzed.
 - Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly.
-- Annoyingly minimalist: only the bare necessities are provided, things like subcommands and default values are up to the user to implement.
+- Imperative: options are returned as they are found, nothing is declared ahead of time.
+- Annoyingly minimalist: only the barest necessities are provided.
 - Unhelpful: there is no help generation and error messages often lack context.
 
 ## Example
@@ -131,9 +130,9 @@ pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternativ
 
 |                        | null     | lexopt   | pico-args   | clap     | gumdrop  | structopt | argh     |
 |------------------------|----------|----------|-------------|----------|----------|-----------|----------|
-| Binary overhead        | 0KiB     | 14.4KiB  | **13.5KiB** | 372.8KiB | 17.7KiB  | 371.2KiB  | 16.8KiB  |
+| Binary overhead        | 0KiB     | 15.0KiB  | **13.5KiB** | 372.8KiB | 17.7KiB  | 371.2KiB  | 16.8KiB  |
 | Build time             | 0.9s     | 1.7s     | **1.6s**    | 13.0s    | 7.5s     | 17.0s     | 7.5s     |
 | Number of dependencies | 0        | **0**    | **0**       | 8        | 4        | 19        | 6        |
 | Tested version         | -        | 0.1.0    | 0.4.2       | 2.33.3   | 0.8.0    | 0.3.22    | 0.1.4    |
 
-(tests were run on Linux with Rust 1.53 and cargo-bloat 0.10.1.)
+(Tests were run on Linux with Rust 1.53 and cargo-bloat 0.10.1.)
