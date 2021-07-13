@@ -6,21 +6,19 @@ on:
     branches: [ master ]
 
 jobs:
-  test-linux:
-    name: Test (Linux)
-    runs-on: ubuntu-latest
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
-      - run: rustup toolchain add 1.40
-      - run: cargo +1.40 test
-
-  test-windows:
-    name: Test (Windows)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v2
-      - run: rustup toolchain add 1.40
-      - run: cargo +1.40 test
+      - run: rustup toolchain add 1.31 1.39 stable nightly
+      - run: cargo +1.31 test --lib  # MSRV (examples don't compile)
+      - run: cargo +1.39 test        # First version where examples compile
+      - run: cargo +stable test
+      - run: cargo +nightly test
 
   lint:
     name: Lint

@@ -53,3 +53,10 @@ These make the library simpler and smaller, which is the whole point.
 - They're large, both in API surface and in code size.
 
 That said, it's still my first choice for complicated interfaces.
+
+# Minimum Supported Rust Version
+The current MSRV is 1.31, the first release of the 2018 edition.
+
+The blocker for moving it even earlier is non-lexical lifetimes, there's some code that won't compile without it.
+
+The `Value(arg) if foo.is_none() =>` pattern doesn't actually work until 1.39 ([`bind_by_move_pattern_guards`](https://github.com/rust-lang/rust/pull/63118)), so not all of the examples compile on the MSRV.

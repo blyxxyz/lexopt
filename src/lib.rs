@@ -476,7 +476,7 @@ impl Parser {
     }
 }
 
-impl Arg<'_> {
+impl<'a> Arg<'a> {
     /// Convert an unexpected argument into an error.
     pub fn unexpected(self) -> Error {
         match self {
@@ -495,7 +495,11 @@ impl Arg<'_> {
 /// It also implements `From` for [`OsString`], as that's used as an error type
 /// by [`OsString::into_string`], so that method may be used with the try (`?`)
 /// operator.
-#[non_exhaustive]
+//
+// This is not #[non_exhaustive] because of the MSRV. I'm hoping no more
+// variants will turn out to be needed: this seems reasonable, if the scope
+// of the library doesn't change. Worst case scenario it can be stuffed inside
+// Error::Custom.
 pub enum Error {
     /// An option argument was expected but was not found.
     MissingValue {
@@ -540,7 +544,7 @@ pub enum Error {
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use Error::*;
+        use crate::Error::*;
         match self {
             MissingValue { flag: None } => write!(f, "missing argument at end of command"),
             MissingValue { flag: Some(flag) } => {
@@ -588,8 +592,8 @@ impl From<String> for Error {
     }
 }
 
-impl From<&'_ str> for Error {
-    fn from(msg: &'_ str) -> Self {
+impl<'a> From<&'a str> for Error {
+    fn from(msg: &'a str) -> Self {
         Error::Custom(msg.into())
     }
 }
@@ -700,7 +704,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 #[cfg(windows)]
 /// As before, but for UTF-16.
 fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
-    match std::char::decode_utf16(bytes.iter().copied()).next() {
+    match std::char::decode_utf16(bytes.iter().map(|ch| *ch)).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
         Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", bytes[0]))),
         None => Ok(None),
@@ -713,12 +717,12 @@ mod tests {
     use super::*;
 
     fn parse(args: &'static str) -> Parser {
-        Parser::from_args(args.split_ascii_whitespace().map(bad_string))
+        Parser::from_args(args.split_whitespace().map(bad_string))
     }
 
     /// Specialized backport of matches!()
     macro_rules! assert_matches {
-        ($expression: expr, $pattern: pat$(,)?) => {
+        ($expression: expr, $pattern: pat) => {
             match $expression {
                 $pattern => true,
                 _ => panic!(
@@ -870,20 +874,9 @@ mod tests {
         }
         #[cfg(not(any(unix, target_os = "wasi", windows)))]
         {
-            match p.next().unwrap_err() {
-                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("--foo=@@@")),
-                _ => panic!(),
-            }
-
-            match q.next().unwrap_err() {
-                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("-💣@@@")),
-                _ => panic!(),
-            }
-
-            match r.next().unwrap_err() {
-                Error::NonUnicodeValue(value) => assert_eq!(value, bad_string("-f@@@")),
-                _ => panic!(),
-            }
+            assert_matches!(p.next(), Err(Error::NonUnicodeValue(_)));
+            assert_matches!(q.next(), Err(Error::NonUnicodeValue(_)));
+            assert_matches!(r.next(), Err(Error::NonUnicodeValue(_)));
         }
         Ok(())
     }
@@ -943,11 +936,11 @@ mod tests {
         assert_matches!(s.parse::<i32>(), Err(Error::NonUnicodeValue(_)));
         assert_matches!(
             s.parse_with(<f32 as FromStr>::from_str),
-            Err(Error::NonUnicodeValue(_)),
+            Err(Error::NonUnicodeValue(_))
         );
         assert_matches!(
             s.into_string().map_err(Error::from),
-            Err(Error::NonUnicodeValue(_)),
+            Err(Error::NonUnicodeValue(_))
         );
         Ok(())
     }
