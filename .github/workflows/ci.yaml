@@ -20,6 +20,13 @@ jobs:
       - run: cargo +stable test
       - run: cargo +nightly test
 
+  test_wasm:
+    name: Test (WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: node test_wasm.js
+
   fuzz:
     name: Fuzz
     runs-on: ubuntu-latest
@@ -48,5 +55,5 @@ jobs:
       - name: clippy (WASI)
         run: cargo clippy --target wasm32-wasi -- -D warnings
 
-      - name: clippy (wasm32)
+      - name: clippy (WASM)
         run: cargo clippy --target wasm32-unknown-unknown -- -D warnings

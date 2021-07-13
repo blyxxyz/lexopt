@@ -73,7 +73,6 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 //   - Free-standing argument versus arg versus value
 //   - Value versus argument versus option-argument versus value
 // - Update table in README before release
-// - Test wasm32-unknown-unknown
 // - rename Parser
 //   - Lexer
 //   - Opts
@@ -317,11 +316,9 @@ impl Parser {
 
                     #[cfg(not(windows))]
                     {
-                        // TODO: this code is really hard to test, because
-                        // of a lack of platforms!
-                        // wasm32-unknown-unknown qualifies, but I haven't figured out
-                        // how to check the test outcome.
-                        // We can at least use it to make sure this compiles.
+                        // This code may be reachable on Hermit and SGX, but probably
+                        // not on wasm32-unknown-unknown, which is unfortunate as that's
+                        // the only one we can easily test.
 
                         // This allocates, sadly.
                         if arg.to_string_lossy().starts_with('-') {
@@ -717,6 +714,7 @@ mod tests {
     }
 
     /// Specialized backport of matches!()
+    #[cfg(any(unix, target_os = "wasi", windows))]
     macro_rules! assert_matches {
         ($expression: expr, $pattern: pat) => {
             match $expression {
@@ -852,28 +850,20 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(any(unix, target_os = "wasi", windows))]
     #[test]
     fn test_mixed_invalid() -> Result<(), Error> {
         let mut p = parse("--foo=@@@");
+        assert_eq!(p.next()?.unwrap(), Long("foo"));
+        assert_eq!(p.value()?, bad_string("@@@"));
+
         let mut q = parse("-💣@@@");
+        assert_eq!(q.next()?.unwrap(), Short('💣'));
+        assert_eq!(q.value()?, bad_string("@@@"));
+
         let mut r = parse("-f@@@");
-        #[cfg(any(unix, target_os = "wasi", windows))]
-        {
-            assert_eq!(p.next()?.unwrap(), Long("foo"));
-            assert_eq!(p.value()?, bad_string("@@@"));
-
-            assert_eq!(q.next()?.unwrap(), Short('💣'));
-            assert_eq!(q.value()?, bad_string("@@@"));
-
-            assert_eq!(r.next()?.unwrap(), Short('f'));
-            assert_matches!(r.next(), Err(Error::UnexpectedFlag(_)));
-        }
-        #[cfg(not(any(unix, target_os = "wasi", windows)))]
-        {
-            assert_matches!(p.next(), Err(Error::NonUnicodeValue(_)));
-            assert_matches!(q.next(), Err(Error::NonUnicodeValue(_)));
-            assert_matches!(r.next(), Err(Error::NonUnicodeValue(_)));
-        }
+        assert_eq!(r.next()?.unwrap(), Short('f'));
+        assert_matches!(r.next(), Err(Error::UnexpectedFlag(_)));
         Ok(())
     }
 
@@ -886,6 +876,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(any(unix, target_os = "wasi", windows))]
     #[test]
     fn test_invalid_long_flag() -> Result<(), Error> {
         let mut p = parse("--@=10");
