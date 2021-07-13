@@ -20,6 +20,15 @@ jobs:
       - run: cargo +stable test
       - run: cargo +nightly test
 
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: rustup toolchain add nightly
+      - run: cargo install cargo-fuzz
+      - run: cargo +nightly fuzz run fuzz_target_1 -- -max_len=100000 -timeout=1 -max_total_time=10
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

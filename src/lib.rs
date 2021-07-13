@@ -68,13 +68,11 @@
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
 // TODO:
-// - Fuzzing on other platforms
 // - Pin down terminology
 //   - Flag vs option
 //   - Free-standing argument versus arg versus value
 //   - Value versus argument versus option-argument versus value
 // - Update table in README before release
-// - fuzz in CI
 // - Test wasm32-unknown-unknown
 // - rename Parser
 //   - Lexer
