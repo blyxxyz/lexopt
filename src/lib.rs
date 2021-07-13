@@ -3,7 +3,7 @@
 //! Most argument parsers are declarative: you tell them what to parse,
 //! and they do it.
 //!
-//! This one provides you with a stream of flags and values and lets you
+//! This one provides you with a stream of options and values and lets you
 //! figure out the rest.
 //!
 //! ## Example
@@ -69,7 +69,6 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 
 // TODO:
 // - Pin down terminology
-//   - Flag vs option
 //   - Free-standing argument versus arg versus value
 //   - Value versus argument versus option-argument versus value
 // - Update table in README before release
@@ -81,18 +80,18 @@ use std::{ffi::OsString, fmt::Display, str::FromStr};
 /// A parser for command line arguments.
 pub struct Parser {
     source: Box<dyn Iterator<Item = OsString> + 'static>,
-    // The current string of short flags being processed
+    // The current string of short options being processed
     shorts: Option<(Vec<u8>, usize)>,
     #[cfg(windows)]
     // The same thing, but encoded as UTF-16
     shorts_utf16: Option<(Vec<u16>, usize)>,
-    // Temporary storage for a long flag so it can be borrowed
+    // Temporary storage for a long option so it can be borrowed
     long: Option<String>,
-    // The pending value for the last long flag
+    // The pending value for the last long option
     long_value: Option<OsString>,
-    // The last flag we emitted
-    last_flag: LastFlag,
-    // Whether we encountered "--" and know no more flags are coming
+    // The last option we emitted
+    last_option: LastOption,
+    // Whether we encountered "--" and know no more options are coming
     finished_opts: bool,
 }
 
@@ -106,52 +105,52 @@ impl std::fmt::Debug for Parser {
         f.field("shorts_utf16", &self.shorts_utf16);
         f.field("long", &self.long)
             .field("long_value", &self.long_value)
-            .field("last_flag", &self.last_flag)
+            .field("last_option", &self.last_option)
             .field("finished_opts", &self.finished_opts)
             .finish()
     }
 }
 
-/// We use this to keep track of the last emitted flag, for error messages when
+/// We use this to keep track of the last emitted option, for error messages when
 /// an expected value is not found.
 ///
-/// A long flag can be recovered from the `long` field, so that variant doesn't
+/// A long option can be recovered from the `long` field, so that variant doesn't
 /// need to contain data. (We sometimes clear the field, but only for the
 /// opposite error (a value is found but not expected), so that's fine.)
 ///
-/// Our short flag storage is cleared more aggressively, so we do need to
+/// Our short option storage is cleared more aggressively, so we do need to
 /// duplicate that.
 #[derive(Debug)]
-enum LastFlag {
+enum LastOption {
     None,
     Short(char),
     Long,
 }
 
-/// A command line argument found by [`Parser`], either a flag or a free-standing value.
+/// A command line argument found by [`Parser`], either an option or a free-standing value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg<'a> {
-    /// A short flag, e.g. `-q`.
+    /// A short option, e.g. `-q`.
     Short(char),
-    /// A long flag, e.g. `--verbose`.
+    /// A long option, e.g. `--verbose`.
     Long(&'a str),
     /// A free-standing argument, e.g. `/dev/null`.
     Value(OsString),
 }
 
 impl Parser {
-    /// Get the next flag or free-standing argument.
+    /// Get the next option or free-standing argument.
     ///
     /// A return value of `Ok(None)` means the command line has been exhausted.
     ///
     /// # Errors
     ///
-    /// [`Error::UnexpectedValue`] is returned if the last flag had a
-    /// value that hasn't been consumed, as in `--flag=value`.
+    /// [`Error::UnexpectedValue`] is returned if the last option had a
+    /// value that hasn't been consumed, as in `--option=value`.
     ///
-    /// [`Error::UnexpectedFlag`] is returned if a flag is not valid unicode.
+    /// [`Error::UnexpectedOption`] is returned if an option is not valid unicode.
     ///
-    /// [`Error::NonUnicodeValue`] is returned for flag-arguments with
+    /// [`Error::NonUnicodeValue`] is returned for option-arguments with
     /// invalid unicode on exotic platforms (not Unix or Windows or WASI).
     ///
     /// It's possible to continue parsing after an error (but this is rarely useful).
@@ -159,25 +158,25 @@ impl Parser {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
             return Err(Error::UnexpectedValue {
-                flag: self.long.clone(),
+                option: self.long.clone(),
                 value,
             });
         }
 
         if let Some((ref arg, ref mut pos)) = self.shorts {
             // We're somewhere inside a -abc chain. Because we're in .next(),
-            // not .value(), we can assume that the next character is another flag.
+            // not .value(), we can assume that the next character is another option.
             match first_codepoint(&arg[*pos..]) {
                 Ok(None) => {
                     self.shorts = None;
                 }
-                // If we find '=' here we assume it's part of a flag.
-                // Another option would be to see it as a value separator.
-                // `-=` as a flag exists in the wild!
+                // If we find '=' here we assume it's part of an option.
+                // Another possibility would be to see it as a value separator.
+                // `-=` as an option exists in the wild!
                 // See https://linux.die.net/man/1/a2ps
                 Ok(Some(ch)) => {
                     *pos += ch.len_utf8();
-                    self.last_flag = LastFlag::Short(ch);
+                    self.last_option = LastOption::Short(ch);
                     return Ok(Some(Arg::Short(ch)));
                 }
                 Err(err) => {
@@ -196,7 +195,7 @@ impl Parser {
                     }
                     Ok(Some(ch)) => {
                         *pos += ch.len_utf16();
-                        self.last_flag = LastFlag::Short(ch);
+                        self.last_option = LastOption::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
                     Err(err) => {
@@ -230,14 +229,14 @@ impl Parser {
 
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
-                let flag = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
+                let option = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
                     match String::from_utf8(bytes[..ind].into()) {
-                        Ok(flag) => {
+                        Ok(option) => {
                             self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
-                            flag
+                            option
                         }
                         Err(_) => {
-                            return Err(Error::UnexpectedFlag(
+                            return Err(Error::UnexpectedOption(
                                 String::from_utf8_lossy(&bytes[..ind]).into(),
                             ))
                         }
@@ -246,11 +245,11 @@ impl Parser {
                     match arg.into_string() {
                         Ok(arg) => arg,
                         Err(arg) => {
-                            return Err(Error::UnexpectedFlag(arg.to_string_lossy().into()))
+                            return Err(Error::UnexpectedOption(arg.to_string_lossy().into()))
                         }
                     }
                 };
-                Ok(Some(self.set_long(flag)))
+                Ok(Some(self.set_long(option)))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
                 self.shorts = Some((arg.into_vec(), 1));
                 self.next()
@@ -271,7 +270,7 @@ impl Parser {
                 const DASH: u16 = b'-' as u16;
                 match (bytes.next(), bytes.next()) {
                     (Some(DASH), Some(_)) => {
-                        // This is a flag, we'll have to do more work.
+                        // This is an option, we'll have to do more work.
                         // (We already checked for "--" earlier.)
                     }
                     _ => {
@@ -295,16 +294,18 @@ impl Parser {
                         const EQ: u16 = b'=' as u16;
                         if arg.starts_with(&[DASH, DASH]) {
                             if let Some(ind) = arg.iter().position(|&u| u == EQ) {
-                                if let Ok(flag) = String::from_utf16(&arg[..ind]) {
+                                if let Ok(option) = String::from_utf16(&arg[..ind]) {
                                     self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
-                                    return Ok(Some(self.set_long(flag)));
+                                    return Ok(Some(self.set_long(option)));
                                 } else {
-                                    return Err(Error::UnexpectedFlag(String::from_utf16_lossy(
+                                    return Err(Error::UnexpectedOption(String::from_utf16_lossy(
                                         &arg[..ind],
                                     )));
                                 }
                             } else {
-                                return Err(Error::UnexpectedFlag(String::from_utf16_lossy(&arg)));
+                                return Err(Error::UnexpectedOption(String::from_utf16_lossy(
+                                    &arg,
+                                )));
                             }
                         } else {
                             assert!(arg.starts_with(&[DASH]));
@@ -323,11 +324,11 @@ impl Parser {
                         // This allocates, sadly.
                         if arg.to_string_lossy().starts_with('-') {
                             // At this point it's game over.
-                            // Even if the flag is fine and only the value is malformed,
+                            // Even if the option is fine and only the value is malformed,
                             // there's no way to separate it into its own OsString.
                             return Err(Error::NonUnicodeValue(arg));
                         } else {
-                            // It didn't look like a flag, so return it as a value.
+                            // It didn't look like an option, so return it as a value.
                             return Ok(Some(Arg::Value(arg)));
                         }
                     }
@@ -336,9 +337,9 @@ impl Parser {
 
             if arg.starts_with("--") {
                 let mut parts = arg.splitn(2, '=');
-                if let (Some(flag), Some(value)) = (parts.next(), parts.next()) {
+                if let (Some(option), Some(value)) = (parts.next(), parts.next()) {
                     self.long_value = Some(value.into());
-                    Ok(Some(self.set_long(flag.into())))
+                    Ok(Some(self.set_long(option.into())))
                 } else {
                     Ok(Some(self.set_long(arg)))
                 }
@@ -351,13 +352,13 @@ impl Parser {
         }
     }
 
-    /// Get a value for a flag.
+    /// Get a value for an option.
     ///
-    /// This function should be called right after seeing a flag that
+    /// This function should be called right after seeing an option that
     /// expects a value. Free-standing arguments are instead collected
     /// using [`next()`][Parser::next].
     ///
-    /// A value is collected even if it looks like a flag
+    /// A value is collected even if it looks like an option
     /// (i.e., starts with `-`).
     ///
     /// # Errors
@@ -373,16 +374,16 @@ impl Parser {
             return Ok(value);
         }
 
-        let flag = match self.last_flag {
-            LastFlag::None => None,
-            LastFlag::Short(ch) => Some(format!("-{}", ch)),
-            LastFlag::Long => self.long.clone(),
+        let option = match self.last_option {
+            LastOption::None => None,
+            LastOption::Short(ch) => Some(format!("-{}", ch)),
+            LastOption::Long => self.long.clone(),
         };
-        Err(Error::MissingValue { flag })
+        Err(Error::MissingValue { option })
     }
 
-    /// Get a value only if it's concatenated to a flag, as in `-fvalue` or
-    /// `--flag=value`.
+    /// Get a value only if it's concatenated to an option, as in `-fvalue` or
+    /// `--option=value`.
     ///
     /// I'm unsure about making this public. It'd contribute to parity with
     /// GNU getopt but it'd also detract from the cleanness of the interface.
@@ -404,7 +405,7 @@ impl Parser {
                 #[cfg(not(any(unix, target_os = "wasi")))]
                 {
                     let arg = String::from_utf8(arg[pos..].into())
-                        .expect("short flag args on exotic platforms must be unicode");
+                        .expect("short option args on exotic platforms must be unicode");
                     return Some(arg.into());
                 }
             }
@@ -434,7 +435,7 @@ impl Parser {
             shorts_utf16: None,
             long: None,
             long_value: None,
-            last_flag: LastFlag::None,
+            last_option: LastOption::None,
             finished_opts: false,
         }
     }
@@ -454,15 +455,15 @@ impl Parser {
             shorts_utf16: None,
             long: None,
             long_value: None,
-            last_flag: LastFlag::None,
+            last_option: LastOption::None,
             finished_opts: false,
         }
     }
 
-    /// Store a long flag so the caller can borrow it.
+    /// Store a long option so the caller can borrow it.
     /// We go through this trouble because matching an owned string is a pain.
     fn set_long(&mut self, value: String) -> Arg {
-        self.last_flag = LastFlag::Long;
+        self.last_option = LastOption::Long;
         // Option::insert would work but it didn't exist in 1.40 (our MSRV)
         self.long = None;
         Arg::Long(&self.long.get_or_insert(value)[2..])
@@ -473,8 +474,8 @@ impl<'a> Arg<'a> {
     /// Convert an unexpected argument into an error.
     pub fn unexpected(self) -> Error {
         match self {
-            Arg::Short(short) => Error::UnexpectedFlag(format!("-{}", short)),
-            Arg::Long(long) => Error::UnexpectedFlag(format!("--{}", long)),
+            Arg::Short(short) => Error::UnexpectedOption(format!("-{}", short)),
+            Arg::Long(long) => Error::UnexpectedOption(format!("--{}", long)),
             Arg::Value(value) => Error::UnexpectedArgument(value),
         }
     }
@@ -496,20 +497,20 @@ impl<'a> Arg<'a> {
 pub enum Error {
     /// An option argument was expected but was not found.
     MissingValue {
-        /// The most recently emitted flag.
-        flag: Option<String>,
+        /// The most recently emitted option.
+        option: Option<String>,
     },
 
-    /// An unexpected flag was found.
-    UnexpectedFlag(String),
+    /// An unexpected option was found.
+    UnexpectedOption(String),
 
     /// A free-standing argument was found when none was expected.
     UnexpectedArgument(OsString),
 
-    /// A flag had a value when none was expected.
+    /// An option had a value when none was expected.
     UnexpectedValue {
-        /// The flag. This is always a long flag.
-        flag: Option<String>,
+        /// The option. This is always a long option.
+        option: Option<String>,
         /// The value.
         value: OsString,
     },
@@ -527,8 +528,8 @@ pub enum Error {
     /// This can be returned by some methods on [`ValueExt`].
     ///
     /// On exotic platforms (not Unix or Windows or WASI) it is also returned
-    /// when such a value is combined with a flag (as in `-f���` and
-    /// `--flag=���`).
+    /// when such a value is combined with an option (as in `-f���` and
+    /// `--option=���`).
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
@@ -539,19 +540,28 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use crate::Error::*;
         match self {
-            MissingValue { flag: None } => write!(f, "missing argument at end of command"),
-            MissingValue { flag: Some(flag) } => {
-                write!(f, "missing argument for option '{}'", flag)
+            MissingValue { option: None } => write!(f, "missing argument at end of command"),
+            MissingValue {
+                option: Some(option),
+            } => {
+                write!(f, "missing argument for option '{}'", option)
             }
-            UnexpectedFlag(flag) => write!(f, "invalid option '{}'", flag),
+            UnexpectedOption(option) => write!(f, "invalid option '{}'", option),
             UnexpectedArgument(value) => write!(f, "unexpected argument {:?}", value),
             UnexpectedValue {
-                flag: Some(flag),
+                option: Some(option),
                 value,
             } => {
-                write!(f, "unexpected argument for option '{}': {:?}", flag, value)
+                write!(
+                    f,
+                    "unexpected argument for option '{}': {:?}",
+                    option, value
+                )
             }
-            UnexpectedValue { flag: None, value } => {
+            UnexpectedValue {
+                option: None,
+                value,
+            } => {
                 write!(f, "unexpected argument for option: {:?}", value)
             }
             NonUnicodeValue(value) => write!(f, "argument is invalid unicode: {:?}", value),
@@ -689,7 +699,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
         Err(err) if err.valid_up_to() > 0 => {
             std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap()
         }
-        Err(_) => return Err(Error::UnexpectedFlag(format!("-\\x{:02x}", bytes[0]))),
+        Err(_) => return Err(Error::UnexpectedOption(format!("-\\x{:02x}", bytes[0]))),
     };
     Ok(text.chars().next())
 }
@@ -699,7 +709,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, Error> {
     match std::char::decode_utf16(units.iter().map(|ch| *ch)).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
-        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", units[0]))),
+        Some(Err(_)) => Err(Error::UnexpectedOption(format!("-\\u{:04x}", units[0]))),
         None => Ok(None),
     }
 }
@@ -767,10 +777,10 @@ mod tests {
         assert_eq!(p.next()?.unwrap(), Long("foobar"));
         match p.next().unwrap_err() {
             Error::UnexpectedValue {
-                flag: Some(flag),
+                option: Some(option),
                 value,
             } => {
-                assert_eq!(flag, "--foobar");
+                assert_eq!(option, "--foobar");
                 assert_eq!(value, "qux=baz");
             }
             _ => panic!(),
@@ -781,28 +791,28 @@ mod tests {
 
     #[test]
     fn test_dash_args() -> Result<(), Error> {
-        // "--" should indicate the end of the flags
+        // "--" should indicate the end of the options
         let mut p = parse("-x -- -y");
         assert_eq!(p.next()?.unwrap(), Short('x'));
         assert_eq!(p.next()?.unwrap(), Value("-y".into()));
         assert_eq!(p.next()?, None);
 
-        // ...unless it's an argument of a flag
+        // ...unless it's an argument of an option
         let mut p = parse("-x -- -y");
         assert_eq!(p.next()?.unwrap(), Short('x'));
         assert_eq!(p.value()?, "--");
         assert_eq!(p.next()?.unwrap(), Short('y'));
         assert_eq!(p.next()?, None);
 
-        // "-" is a valid value that should not be treated as a flag
+        // "-" is a valid value that should not be treated as an option
         let mut p = parse("-x - -y");
         assert_eq!(p.next()?.unwrap(), Short('x'));
         assert_eq!(p.next()?.unwrap(), Value("-".into()));
         assert_eq!(p.next()?.unwrap(), Short('y'));
         assert_eq!(p.next()?, None);
 
-        // '-' is a silly and hard to use short flag, but other parsers treat
-        // it like a flag in this position
+        // '-' is a silly and hard to use short option, but other parsers treat
+        // it like an option in this position
         let mut p = parse("-x-y");
         assert_eq!(p.next()?.unwrap(), Short('x'));
         assert_eq!(p.next()?.unwrap(), Short('-'));
@@ -817,22 +827,23 @@ mod tests {
         let mut p = parse("-o");
         assert_eq!(p.next()?.unwrap(), Short('o'));
         match p.value() {
-            Err(Error::MissingValue { flag: Some(flag) }) => assert_eq!(flag, "-o"),
+            Err(Error::MissingValue {
+                option: Some(option),
+            }) => assert_eq!(option, "-o"),
             _ => panic!(),
         }
 
         let mut q = parse("--out");
         assert_eq!(q.next()?.unwrap(), Long("out"));
         match q.value() {
-            Err(Error::MissingValue { flag: Some(flag) }) => assert_eq!(flag, "--out"),
+            Err(Error::MissingValue {
+                option: Some(option),
+            }) => assert_eq!(option, "--out"),
             _ => panic!(),
         }
 
         let mut r = parse("");
-        match r.value() {
-            Err(Error::MissingValue { flag: None }) => (),
-            _ => panic!(),
-        }
+        assert_matches!(r.value(), Err(Error::MissingValue { option: None }));
 
         Ok(())
     }
@@ -863,7 +874,12 @@ mod tests {
 
         let mut r = parse("-f@@@");
         assert_eq!(r.next()?.unwrap(), Short('f'));
-        assert_matches!(r.next(), Err(Error::UnexpectedFlag(_)));
+        assert_matches!(r.next(), Err(Error::UnexpectedOption(_)));
+
+        let mut s = parse("--foo=bar=@@@");
+        assert_eq!(s.next()?.unwrap(), Long("foo"));
+        assert_eq!(s.value()?, bad_string("bar=@@@"));
+
         Ok(())
     }
 
@@ -878,7 +894,7 @@ mod tests {
 
     #[cfg(any(unix, target_os = "wasi", windows))]
     #[test]
-    fn test_invalid_long_flag() -> Result<(), Error> {
+    fn test_invalid_long_option() -> Result<(), Error> {
         let mut p = parse("--@=10");
         p.next().unwrap_err();
         assert_eq!(p.next()?, None);

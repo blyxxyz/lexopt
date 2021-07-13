@@ -24,13 +24,13 @@ struct Args {
     json: bool,
     form: bool,
 
-    // Flag with argument.
+    // Option with argument.
     output: Option<PathBuf>,
 
     // An enum with a small set of possible values.
     pretty: Option<Pretty>,
 
-    // Ordinary binary flag, but there's also a flag to negate it.
+    // Ordinary boolean flag, but there's also a flag to negate it.
     stream: bool,
 
     // Can be passed multiple times to add more proxies.
@@ -67,7 +67,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 form = true;
             }
             Short('o') | Long("output") => {
-                // .value() grabs a value for the flag.
+                // .value() grabs a value for the option.
                 // This is an OsString, which we convert into a PathBuf.
                 output = Some(parser.value()?.into());
             }

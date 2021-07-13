@@ -12,7 +12,7 @@ Keeping the core API clean and generic means this could perhaps be used as the b
 # Possible enhancements
 It is sometimes useful to look at argv[0], the command name. `Parser::from_env` currently discards it. Two use cases are help and error messages, where a decoded string is appropriate, but an `&OsStr` would be lossless. For now it can be extracted manually before calling `Parser::from_args`.
 
-Some programs have flags with optional arguments. `-fvalue` counts, `-f value` does not. There's a private method that supports exactly this behavior but I don't know if exposing it is a good idea.
+Some programs have options with optional arguments. `-fvalue` counts, `-f value` does not. There's a private method that supports exactly this behavior but I don't know if exposing it is a good idea.
 
 It is sometimes useful to get argv[0], the command name. `Parser::from_env` currently discards it. Two use cases are help and error messages, where a decoded string is appropriate, but an `&OsStr` would be lossless. For now it can be extracted manually before calling `Parser::from_args`.
 
@@ -30,7 +30,7 @@ Sometimes Rust is a bother.
 Arguments on Windows sometimes have to be transcoded three times: from UTF-16 to WTF-8 by `args_os`, then back to UTF-16 to parse them, then to WTF-8 again to be used. This ensures we see the original invalid code unit if there's a problem, but it's a bit sad.
 
 # Errors
-There's not always enough information for a good error message. A plain `OsString` doesn't remember what the parser knows, like what the last flag was.
+There's not always enough information for a good error message. A plain `OsString` doesn't remember what the parser knows, like what the last option was.
 
 `ValueExt::parse` exists to include the original string in an error message and to wrap all errors inside a uniform type. It's unclear if it earns its upkeep.
 
@@ -38,18 +38,18 @@ There's not always enough information for a good error message. A plain `OsStrin
 These are all defensible design choices, they're just a bad fit for some of the programs I want to write. All of them make some other kind of program easier to write.
 
 ## pico-args
-- Results can be erratic in edge cases: option arguments may be interpreted as flags, the order in which you request flags matters, and arguments may get treated as if they're next to each other if the arguments inbetween get parsed first.
+- Results can be erratic in edge cases: option arguments may be interpreted as options, the order in which you request options matters, and arguments may get treated as if they're next to each other if the arguments inbetween get parsed first.
 - `--` as a separator is not built in.
-- Arguments that are not valid unicode are not recognized as flags, even if they start with a dash.
+- Arguments that are not valid unicode are not recognized as options, even if they start with a dash.
 - Left-over arguments are ignored by default. I prefer when the path of least resistance is strict.
-- It uses `Vec::remove`, so it's potentially slow if you pass many thousands of flags. (This is a bit academic, there's no problem for realistic workloads.)
+- It uses `Vec::remove`, so it's potentially slow if you pass many thousands of options. (This is a bit academic, there's no problem for realistic workloads.)
 
 These make the library simpler and smaller, which is the whole point.
 
 ## clap/structopt
 - structopt nudges the user toward needlessly panicking on invalid unicode: even if a field has type `OsString` or `PathBuf` it'll round-trip through a unicode string and panic unless `from_os_str` is used. (I don't know if this is fixable even in theory while keeping the API ergonomic.)
 - Invalid unicode causes a panic instead of a soft error.
-- Options with a variable number of arguments are supported, even though they're ambiguous. In structopt you need to take care not to enable this if you want a flag that can occur multiple times with a single argument each time.
+- Options with a variable number of arguments are supported, even though they're ambiguous. In structopt you need to take care not to enable this if you want an option that can occur multiple times with a single argument each time.
 - They're large, both in API surface and in code size.
 
 That said, it's still my first choice for complicated interfaces.

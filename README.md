@@ -1,6 +1,6 @@
 # Lexopt
 
-Lexopt is an *imperative* argument parser. Most parsers are declarative: they are told which flags to expect. Lexopt instead returns flags as it encounters them and leaves their handling up to you.
+Lexopt is an *imperative* argument parser. Most parsers are declarative: they are told which arguments to expect. Lexopt instead returns options as it encounters them and leaves their handling up to you.
 
 A goal is to have the absolute simplest possible design that's still correct.
 
@@ -86,28 +86,28 @@ For a more complete example with useful patterns, see [`examples/httpie.rs`](exa
 
 ## Command line syntax
 The following conventions are supported:
-- Short flags (`-q`)
-- Long flags (`--verbose`)
+- Short options (`-q`)
+- Long options (`--verbose`)
 - `--` to mark the end of options
-- `=` to separate long flags from values (`--flag=value`)
-- Spaces to separate flags from values (`--flag value`, `-f value`)
-- Unseparated short flags (`-fvalue`)
-- Combined flags (`-abc` to mean `-a -b -c`)
+- `=` to separate long options from values (`--option=value`)
+- Spaces to separate options from values (`--option value`, `-f value`)
+- Unseparated short options (`-fvalue`)
+- Combined short options (`-abc` to mean `-a -b -c`)
 
 These are not supported:
-- `-f=value` for short flags
-- Flags with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
-- Single-dash long flags (like find's `-name`)
-- Abbreviated long flags (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
+- `-f=value` for short options
+- Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
+- Single-dash long options (like find's `-name`)
+- Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
 ## Unicode
 This library supports unicode while tolerating non-unicode arguments.
 
-Short flags may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long flag. If you need normalization you're on your own, but it can be done.)
+Short options may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long option. If you need normalization you're on your own, but it can be done.)
 
-Flags can be combined with non-unicode arguments. That is, `--flag=���` will not cause an error. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
+Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
 
-Flags that are invalid unicode will always cause an `Error::UnexpectedFlag`.
+Options that are invalid unicode will always cause an `Error::UnexpectedOption`.
 
 ## Why?
 For a particular application I was looking for a small parser that's pedantically correct. There are other compact argument parsing libraries, but I couldn't find one that handled `OsString`s and implemented all the fiddly details of the argument syntax faithfully.
