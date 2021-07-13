@@ -82,7 +82,7 @@ Let's walk through this:
 
 This covers almost all the functionality in the library. Lexopt does very little for you.
 
-For a more complete example with useful patterns, see [`examples/httpie.rs`](examples/httpie.rs).
+For a larger example with useful patterns, see [`examples/cargo.rs`](examples/cargo.rs).
 
 ## Command line syntax
 The following conventions are supported:
