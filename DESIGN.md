@@ -48,11 +48,13 @@ These make the library simpler and smaller, which is the whole point.
 
 ## clap/structopt
 - structopt nudges the user toward needlessly panicking on invalid unicode: even if a field has type `OsString` or `PathBuf` it'll round-trip through a unicode string and panic unless `from_os_str` is used. (I don't know if this is fixable even in theory while keeping the API ergonomic.)
-- Invalid unicode causes a panic instead of a soft error.
+- Invalid unicode can cause a panic instead of a soft error.
 - Options with a variable number of arguments are supported, even though they're ambiguous. In structopt you need to take care not to enable this if you want an option that can occur multiple times with a single argument each time.
 - They're large, both in API surface and in code size.
 
 That said, it's still my first choice for complicated interfaces.
+
+(I don't know how much of this applies to clap v3 and clap-derive.)
 
 # Minimum Supported Rust Version
 The current MSRV is 1.31, the first release of the 2018 edition.

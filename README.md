@@ -1,6 +1,6 @@
 # Lexopt
 
-Lexopt is the simplest possible argument parser that's still correct. It's so simple that it's a bit tedious to use.
+Lexopt tries to be the simplest possible argument parser that's still correct. It's so simple that it's a bit tedious to use.
 
 Lexopt is:
 - Small: one file, no dependencies, no macros. Easy to audit or vendor.
@@ -104,9 +104,9 @@ This library supports unicode while tolerating non-unicode arguments.
 
 Short options may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long option. If you need normalization you're on your own, but it can be done.)
 
-Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
+Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error or mangle the value. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
 
-Options that are invalid unicode will always cause an `Error::UnexpectedOption`.
+Options themselves are patched as by [`String::from_utf8_lossy`](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy) if they're not valid unicode. That typically means you'll raise an error later when they're not recognized.
 
 ## Why?
 For a particular application I was looking for a small parser that's pedantically correct. There are other compact argument parsing libraries, but I couldn't find one that handled `OsString`s and implemented all the fiddly details of the argument syntax faithfully.
@@ -126,13 +126,13 @@ This library may not be worth using if:
 - [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 
-pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternatives) with build times and code sizes for different parsers. I've rerun the tests and added lexopt (using the program in `examples/pico_test_app.rs`):
+pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternatives) with build times and code sizes for different parsers. I've rerun the tests and added lexopt (using the program in [`examples/pico_test_app.rs`](examples/pico_test_app.rs)):
 
-|                        | null     | lexopt   | pico-args   | clap     | gumdrop  | structopt | argh     |
-|------------------------|----------|----------|-------------|----------|----------|-----------|----------|
-| Binary overhead        | 0KiB     | 14.6KiB  | **13.5KiB** | 372.8KiB | 17.7KiB  | 371.2KiB  | 16.8KiB  |
-| Build time             | 0.9s     | 1.7s     | **1.6s**    | 13.0s    | 7.5s     | 17.0s     | 7.5s     |
-| Number of dependencies | 0        | **0**    | **0**       | 8        | 4        | 19        | 6        |
-| Tested version         | -        | 0.1.0    | 0.4.2       | 2.33.3   | 0.8.0    | 0.3.22    | 0.1.4    |
+|                        | null     | lexopt      | pico-args   | clap     | gumdrop  | structopt | argh     |
+|------------------------|----------|-------------|-------------|----------|----------|-----------|----------|
+| Binary overhead        | 0KiB     | **13.5KiB** | **13.5KiB** | 372.8KiB | 17.7KiB  | 371.2KiB  | 16.8KiB  |
+| Build time             | 0.9s     | 1.7s        | **1.6s**    | 13.0s    | 7.5s     | 17.0s     | 7.5s     |
+| Number of dependencies | 0        | **0**       | **0**       | 8        | 4        | 19        | 6        |
+| Tested version         | -        | 0.1.0       | 0.4.2       | 2.33.3   | 0.8.0    | 0.3.22    | 0.1.4    |
 
 (Tests were run on Linux with Rust 1.53 and cargo-bloat 0.10.1.)

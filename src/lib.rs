@@ -142,15 +142,13 @@ impl Parser {
     ///
     /// A return value of `Ok(None)` means the command line has been exhausted.
     ///
+    /// Options that are not valid unicode are transformed with replacement
+    /// characters as by [`String::from_utf8_lossy`] .
+    ///
     /// # Errors
     ///
     /// [`Error::UnexpectedValue`] is returned if the last option had a
     /// value that hasn't been consumed, as in `--option=value`.
-    ///
-    /// [`Error::UnexpectedOption`] is returned if an option is not valid unicode.
-    ///
-    /// [`Error::NonUnicodeValue`] is returned for option-arguments with
-    /// invalid unicode on exotic platforms (not Unix or Windows or WASI).
     ///
     /// It's possible to continue parsing after an error (but this is rarely useful).
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
@@ -178,9 +176,11 @@ impl Parser {
                     self.last_option = LastOption::Short(ch);
                     return Ok(Some(Arg::Short(ch)));
                 }
-                Err(err) => {
-                    *pos += 1; // This may allow recovery
-                    return Err(err);
+                Err(_) => {
+                    // Advancing may allow recovery.
+                    // This is a little iffy, there might be more bad unicode next.
+                    *pos += 1;
+                    return Ok(Some(Arg::Short('�')));
                 }
             }
         }
@@ -197,9 +197,9 @@ impl Parser {
                         self.last_option = LastOption::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
-                    Err(err) => {
+                    Err(_) => {
                         *pos += 1;
-                        return Err(err);
+                        return Ok(Some(Arg::Short('�')));
                     }
                 }
             }
@@ -229,24 +229,11 @@ impl Parser {
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
                 let option = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
-                    match String::from_utf8(bytes[..ind].into()) {
-                        Ok(option) => {
-                            self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
-                            option
-                        }
-                        Err(_) => {
-                            return Err(Error::UnexpectedOption(
-                                String::from_utf8_lossy(&bytes[..ind]).into(),
-                            ))
-                        }
-                    }
+                    self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
+                    String::from_utf8_lossy(&bytes[..ind]).into()
                 } else {
-                    match arg.into_string() {
-                        Ok(arg) => arg,
-                        Err(arg) => {
-                            return Err(Error::UnexpectedOption(arg.to_string_lossy().into()))
-                        }
-                    }
+                    // Unnecessary copy
+                    arg.to_string_lossy().into_owned()
                 };
                 Ok(Some(self.set_long(option)))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
@@ -293,18 +280,12 @@ impl Parser {
                         const EQ: u16 = b'=' as u16;
                         if arg.starts_with(&[DASH, DASH]) {
                             if let Some(ind) = arg.iter().position(|&u| u == EQ) {
-                                if let Ok(option) = String::from_utf16(&arg[..ind]) {
-                                    self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
-                                    return Ok(Some(self.set_long(option)));
-                                } else {
-                                    return Err(Error::UnexpectedOption(String::from_utf16_lossy(
-                                        &arg[..ind],
-                                    )));
-                                }
+                                self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
+                                let long = self.set_long(String::from_utf16_lossy(&arg[..ind]));
+                                return Ok(Some(long));
                             } else {
-                                return Err(Error::UnexpectedOption(String::from_utf16_lossy(
-                                    &arg,
-                                )));
+                                let long = self.set_long(String::from_utf16_lossy(&arg));
+                                return Ok(Some(long));
                             }
                         } else {
                             assert!(arg.starts_with(&[DASH]));
@@ -320,12 +301,15 @@ impl Parser {
                         // not on wasm32-unknown-unknown, which is unfortunate as that's
                         // the only one we can easily test.
 
-                        // This allocates, sadly.
-                        if arg.to_string_lossy().starts_with('-') {
-                            // At this point it's game over.
-                            // Even if the option is fine and only the value is malformed,
-                            // there's no way to separate it into its own OsString.
-                            return Err(Error::NonUnicodeValue(arg));
+                        // This allocates unconditionally, sadly.
+                        let text = arg.to_string_lossy();
+                        if text.starts_with('-') {
+                            // Use the lossily patched version and hope for the best.
+                            // This may be incorrect behavior. Our only other option
+                            // is an error but I don't want to write complicated code
+                            // I can't actually test.
+                            // Please open an issue if this behavior affects you!
+                            text.into_owned()
                         } else {
                             // It didn't look like an option, so return it as a value.
                             return Ok(Some(Arg::Value(arg)));
@@ -525,10 +509,6 @@ pub enum Error {
     /// A value was found that was not valid unicode.
     ///
     /// This can be returned by some methods on [`ValueExt`].
-    ///
-    /// On exotic platforms (not Unix or Windows or WASI) it is also returned
-    /// when such a value is combined with an option (as in `-f���` and
-    /// `--option=���`).
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
@@ -687,10 +667,11 @@ pub mod prelude {
     pub use super::ValueExt;
 }
 
-/// Take the first codepoint of a bytestring.
+/// Take the first codepoint of a bytestring. On error, return the first
+/// (and therefore in some way invalid) byte/code unit.
 ///
 /// The rest of the bytestring does not have to be valid unicode.
-fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
+fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, u8> {
     // We only need the first 4 bytes
     let bytes = bytes.get(..4).unwrap_or(bytes);
     let text = match std::str::from_utf8(bytes) {
@@ -698,17 +679,17 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
         Err(err) if err.valid_up_to() > 0 => {
             std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap()
         }
-        Err(_) => return Err(Error::UnexpectedOption(format!("-\\x{:02x}", bytes[0]))),
+        Err(_) => return Err(bytes[0]),
     };
     Ok(text.chars().next())
 }
 
 #[cfg(windows)]
 /// As before, but for UTF-16.
-fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, Error> {
+fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
     match std::char::decode_utf16(units.iter().map(|ch| *ch)).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
-        Some(Err(_)) => Err(Error::UnexpectedOption(format!("-\\u{:04x}", units[0]))),
+        Some(Err(_)) => Err(units[0]),
         None => Ok(None),
     }
 }
@@ -723,7 +704,6 @@ mod tests {
     }
 
     /// Specialized backport of matches!()
-    #[cfg(any(unix, target_os = "wasi", windows))]
     macro_rules! assert_matches {
         ($expression: expr, $pattern: pat) => {
             match $expression {
@@ -873,7 +853,10 @@ mod tests {
 
         let mut r = parse("-f@@@");
         assert_eq!(r.next()?.unwrap(), Short('f'));
-        assert_matches!(r.next(), Err(Error::UnexpectedOption(_)));
+        assert_eq!(r.next()?.unwrap(), Short('�'));
+        assert_eq!(r.next()?.unwrap(), Short('�'));
+        assert_eq!(r.next()?.unwrap(), Short('�'));
+        assert_eq!(r.next()?, None);
 
         let mut s = parse("--foo=bar=@@@");
         assert_eq!(s.next()?.unwrap(), Long("foo"));
@@ -895,12 +878,13 @@ mod tests {
     #[test]
     fn test_invalid_long_option() -> Result<(), Error> {
         let mut p = parse("--@=10");
-        p.next().unwrap_err();
+        assert_eq!(p.next()?.unwrap(), Long("�"));
+        assert_eq!(p.value().unwrap(), OsString::from("10"));
         assert_eq!(p.next()?, None);
 
         let mut q = parse("--@");
-        q.next().unwrap_err();
-        assert_eq!(p.next()?, None);
+        assert_eq!(q.next()?.unwrap(), Long("�"));
+        assert_eq!(q.next()?, None);
 
         Ok(())
     }
