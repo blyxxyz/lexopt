@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - run: rustup target add wasm32-unknown-unknown
       - run: node test_wasm.js
 
   fuzz:
