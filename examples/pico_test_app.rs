@@ -14,7 +14,8 @@ OPTIONS:
   --width WIDTH         Set a width (non-zero, default 10)
 
 ARGS:
-  <INPUT>               Input file";
+  <INPUT>               Input file
+";
 
 #[derive(Debug)]
 struct AppArgs {
@@ -29,14 +30,19 @@ fn parse_width(s: &str) -> Result<u32, String> {
     if w != 0 {
         Ok(w)
     } else {
-        Err("width must be positive".into())
+        Err("width must be positive".to_string())
     }
 }
 
-fn main() -> Result<(), lexopt::Error> {
-    let args = parse_args()?;
+fn main() {
+    let args = match parse_args() {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("Error: {}.", err);
+            std::process::exit(1);
+        }
+    };
     println!("{:#?}", args);
-    Ok(())
 }
 
 fn parse_args() -> Result<AppArgs, lexopt::Error> {
@@ -51,7 +57,7 @@ fn parse_args() -> Result<AppArgs, lexopt::Error> {
     while let Some(arg) = parser.next()? {
         match arg {
             Short('h') | Long("help") => {
-                println!("{}", HELP);
+                print!("{}", HELP);
                 std::process::exit(0);
             }
             Long("number") => number = Some(parser.value()?.parse()?),
