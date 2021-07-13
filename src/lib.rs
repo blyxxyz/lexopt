@@ -170,6 +170,7 @@ impl Parser {
                     // Advancing may allow recovery.
                     // This is a little iffy, there might be more bad unicode next.
                     *pos += 1;
+                    self.last_option = LastOption::Short('�');
                     return Ok(Some(Arg::Short('�')));
                 }
             }
@@ -189,6 +190,7 @@ impl Parser {
                     }
                     Err(_) => {
                         *pos += 1;
+                        self.last_option = LastOption::Short('�');
                         return Ok(Some(Arg::Short('�')));
                     }
                 }
