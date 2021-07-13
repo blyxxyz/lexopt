@@ -700,10 +700,10 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Error> {
 
 #[cfg(windows)]
 /// As before, but for UTF-16.
-fn first_utf16_codepoint(bytes: &[u16]) -> Result<Option<char>, Error> {
-    match std::char::decode_utf16(bytes.iter().map(|ch| *ch)).next() {
+fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, Error> {
+    match std::char::decode_utf16(units.iter().map(|ch| *ch)).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
-        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", bytes[0]))),
+        Some(Err(_)) => Err(Error::UnexpectedFlag(format!("-\\u{:04x}", units[0]))),
         None => Ok(None),
     }
 }
