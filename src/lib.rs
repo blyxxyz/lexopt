@@ -131,7 +131,7 @@ enum LastFlag {
     Long,
 }
 
-/// A command line argument, either a flag or a free-standing value.
+/// A command line argument found by [`Parser`], either a flag or a free-standing value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg<'a> {
     /// A short flag, e.g. `-q`.
@@ -529,11 +529,11 @@ pub enum Error {
 
     /// A value was found that was not valid unicode.
     ///
-    /// This may be returned by some methods on [`ValueExt`].
+    /// This can be returned by some methods on [`ValueExt`].
     ///
     /// On exotic platforms (not Unix or Windows or WASI) it is also returned
-    /// when such a value is combined with a flag (as in `-f[invalid]` and
-    /// `--flag=[invalid]`), even if an [`OsString`] is requested.
+    /// when such a value is combined with a flag (as in `-f���` and
+    /// `--flag=���`).
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
