@@ -63,6 +63,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![allow(clippy::should_implement_trait)]
+#![allow(clippy::map_clone)] // Because of the MSRV (setting MSRV in clippy.toml doesn't help)
 
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
