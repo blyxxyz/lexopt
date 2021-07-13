@@ -67,9 +67,6 @@
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
 // TODO:
-// - Example of `if foo.is_none()` pattern for positional arguments
-//   - HTTPie example is too weird, should be replaced by something elses
-//     - Perhaps something with subcommands to solve two problems at once
 // - Fuzzing on other platforms
 // - Pin down terminology
 //   - Flag vs option

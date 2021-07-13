@@ -74,6 +74,7 @@ Let's walk through this:
   - This returns a standard [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html).
   - For convenience, `use lexopt::prelude::*` adds a `.parse()` method, analogous to [`str::parse`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
 - `Value` indicates a free-standing argument. In this case, a filename.
+  - `if thing.is_none()` is a useful pattern for positional arguments. If we already found `thing` we pass it on to another case.
   - It also contains an `OsString`.
     - The standard `.into_string()` method can decode it into a plain `String`.
 - If we don't know what to do with an argument we use `return Err(arg.unexpected())` to turn it into an error message.

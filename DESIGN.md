@@ -3,9 +3,9 @@ Some rambling thoughts that don't deserve a place in the README.
 # Cleanness
 The API consists of two clean simple powerful methods with no arguments and no configurability, plus some more junk to make them convenient to use.
 
-I don't really like the `ValueExt` extension trait, but I can't think of a nicer way to parse values.
+Language features are to be preferred over library features as much as possible. That way the library can stay smaller and code that uses the library is hopefully easier to understand in detail for people who aren't familiar with the library.
 
-In my ideal workflow you would call `.into_string()?.parse()?` to parse a value, all built-in methods. But I don't think it's possible to have an error type that can be transformed from both methods' error types, `into_string` returns `OsString` and there are annoying rules around overlapping trait implementations. The error messages would also suffer.
+I don't really like the `ValueExt` extension trait, but I can't think of a nicer way to parse values. In my ideal workflow you would call `.into_string()?.parse()?` to parse a value, all built-in methods. But I don't think it's possible to have an error type that can be transformed from both methods' error types, `into_string` returns `OsString` and there are annoying rules around overlapping trait implementations. The error messages would also suffer.
 
 Keeping the core API clean and generic means this could perhaps be used as the basis of a more complete parser.
 
