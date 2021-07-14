@@ -228,8 +228,10 @@ impl Parser {
                     self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
                     String::from_utf8_lossy(&bytes[..ind]).into()
                 } else {
-                    // Unnecessary copy
-                    arg.to_string_lossy().into_owned()
+                    match arg.into_string() {
+                        Ok(text) => text,
+                        Err(arg) => arg.to_string_lossy().into_owned(),
+                    }
                 };
                 Ok(Some(self.set_long(option)))
             } else if bytes.len() > 1 && bytes[0] == b'-' {
