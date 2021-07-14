@@ -1,6 +1,6 @@
 # Lexopt
 
-Lexopt tries to be the simplest possible argument parser that's still correct. It's so simple that it's a bit tedious to use.
+Lexopt is an argument parser for Rust. It tries to have the simplest possible design that's still correct. It's so simple that it's a bit tedious to use.
 
 Lexopt is:
 - Small: one file, no dependencies, no macros. Easy to audit or vendor.
@@ -62,7 +62,6 @@ fn main() -> Result<(), lexopt::Error> {
     }
     Ok(())
 }
-
 ```
 
 Let's walk through this:
@@ -135,4 +134,4 @@ pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternativ
 | Number of dependencies | 0    | **0**   | **0**       | 8        | 4       | 19        | 6       |
 | Tested version         | -    | 0.1.0   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.22    | 0.1.4   |
 
-(Tests were run on Linux with Rust 1.53 and cargo-bloat 0.10.1.)
+(Tests were run on x86_64 Linux with Rust 1.53 and cargo-bloat 0.10.1.)
