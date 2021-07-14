@@ -83,6 +83,8 @@ pub struct Parser {
     last_option: LastOption,
     // Whether we encountered "--" and know no more options are coming
     finished_opts: bool,
+    // The name of the command (argv[0])
+    bin_name: Option<OsString>,
 }
 
 // source may not implement Debug
@@ -361,6 +363,20 @@ impl Parser {
         Err(Error::MissingValue { option })
     }
 
+    /// The name of the command, as in the zeroth argument of the process.
+    ///
+    /// This may be useful to include in help or error messages.
+    ///
+    /// Returns `None` if:
+    /// - The parser was not constructed by [`Parser::from_env`]
+    /// - The name is not valid unicode
+    /// - The name was not supplied by the system
+    ///
+    /// Using [`Option::unwrap_or`] for a fallback value is recommended.
+    pub fn bin_name(&self) -> Option<&str> {
+        self.bin_name.as_ref().and_then(|s| s.to_str())
+    }
+
     /// Get a value only if it's concatenated to an option, as in `-fvalue` or
     /// `--option=value`.
     ///
@@ -406,7 +422,7 @@ impl Parser {
     /// Create a parser from the environment using [`std::env::args_os`].
     pub fn from_env() -> Parser {
         let mut source = std::env::args_os();
-        source.next();
+        let bin_name = source.next();
         Parser {
             source: Box::new(source),
             shorts: None,
@@ -416,6 +432,7 @@ impl Parser {
             long_value: None,
             last_option: LastOption::None,
             finished_opts: false,
+            bin_name,
         }
     }
 
@@ -436,6 +453,7 @@ impl Parser {
             long_value: None,
             last_option: LastOption::None,
             finished_opts: false,
+            bin_name: None,
         }
     }
 
