@@ -946,6 +946,9 @@ mod tests {
             assert_eq!(q.next()?, None);
         }
 
+        let mut r = parse("");
+        assert_eq!(r.next()?, None);
+
         Ok(())
     }
 
@@ -1099,6 +1102,72 @@ mod tests {
                 unimplemented!("Don't know how to create invalid OsStrings on this platform");
             }
             text.into()
+        }
+    }
+
+    /// Very basic exhaustive testing of short combinations of "interesting"
+    /// arguments. Should not panic or hang, anything goes otherwise.
+    ///
+    /// Partially copied from fuzz/fuzz_targets/fuzz_target_1.
+    ///
+    /// The advantage compared to full fuzzing is that it runs on all platforms
+    /// and together with the other tests. cargo-fuzz doesn't work on Windows
+    /// and requires a special incantation.
+    ///
+    /// A disadvantage is that it's still limited by arguments I could think of
+    /// and only does very short sequences. Another is that it's bad at
+    /// reporting failure, you won't get to see which sequence caused the issue.
+    /// (Try adding a println!() and `cargo test basic_fuzz -- --show-output`.)
+    #[test]
+    fn basic_fuzz() {
+        #[cfg(any(windows, unix, target_os = "wasi"))]
+        const VOCABULARY: &[&str] = &[
+            "", "-", "--", "a", "-a", "-aa", "@", "-@", "-a@", "-@a", "--a", "--@", "--a=a",
+            "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@",
+        ];
+        #[cfg(not(any(windows, unix, target_os = "wasi")))]
+        const VOCABULARY: &[&str] = &[
+            "", "-", "--", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a",
+        ];
+        let vocabulary: Vec<OsString> = VOCABULARY.iter().map(|&s| bad_string(s)).collect();
+        let mut permutations = vec![vec![]];
+        for _ in 0..3 {
+            let mut new = Vec::new();
+            for old in permutations {
+                for word in &vocabulary {
+                    let mut extended = old.clone();
+                    extended.push(word);
+                    new.push(extended);
+                }
+            }
+            permutations = new;
+            for permutation in &permutations {
+                println!("{:?}", permutation);
+                for mut decisions in 0..8_u8 {
+                    let permutation: Vec<OsString> =
+                        permutation.iter().map(|&s| s.clone()).collect();
+                    let mut p = Parser::from_args(permutation.into_iter());
+                    let mut counter = 0;
+                    loop {
+                        if decisions & 1 == 0 {
+                            match p.next() {
+                                Err(_) => (),
+                                Ok(Some(_)) => (),
+                                Ok(None) => break,
+                            }
+                        } else {
+                            // We never break here, but decisions reaches 0 eventually
+                            // and then we can break
+                            let _ = p.value();
+                        }
+                        decisions >>= 1;
+                        counter += 1;
+                        if counter > 100 {
+                            panic!("Stuck in loop");
+                        }
+                    }
+                }
+            }
         }
     }
 }
