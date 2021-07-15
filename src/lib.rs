@@ -911,6 +911,45 @@ mod tests {
     }
 
     #[test]
+    fn test_weird_args() -> Result<(), Error> {
+        let mut p = Parser::from_args(&[
+            "", "--=", "--=3", "-", "-x", "--", "-", "-x", "--", "", "-", "-x",
+        ]);
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("")));
+
+        // These are weird and questionable, but this seems to be the standard
+        // interpretation
+        // GNU getopt_long and argparse complain that it could be an abbreviation
+        // of every single long option
+        // clap complains that "--" is not expected, which matches its treatment
+        // of unknown long options
+        assert_eq!(p.next()?.unwrap(), Long(""));
+        assert_eq!(p.value()?, OsString::from(""));
+        assert_eq!(p.next()?.unwrap(), Long(""));
+        assert_eq!(p.value()?, OsString::from("3"));
+
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("-")));
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.value()?, OsString::from("--"));
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("-")));
+        assert_eq!(p.next()?.unwrap(), Short('x'));
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("")));
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("-")));
+        assert_eq!(p.next()?.unwrap(), Value(OsString::from("-x")));
+        assert_eq!(p.next()?, None);
+
+        #[cfg(any(unix, target_os = "wasi", windows))]
+        {
+            let mut q = parse("--=@");
+            assert_eq!(q.next()?.unwrap(), Long(""));
+            assert_eq!(q.value()?, bad_string("@"));
+            assert_eq!(q.next()?, None);
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_unicode() -> Result<(), Error> {
         let mut p = parse("-aµ --µ=10 µ --foo=µ");
         assert_eq!(p.next()?.unwrap(), Short('a'));
