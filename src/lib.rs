@@ -224,10 +224,22 @@ impl Parser {
 
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
+                // Long flags have two forms: --option and --option=value.
                 let option = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
+                    // The value can be an OsString...
                     self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
+                    // ...but the flag has to be a string.
                     String::from_utf8_lossy(&bytes[..ind]).into()
                 } else {
+                    // arg.to_string_lossy().into_owned() would work, but its
+                    // return type is Cow: if the original was valid a borrowed
+                    // version is returned, and then into_owned() does an
+                    // unnecessary copy.
+                    // By trying .into_string() first we avoid that copy if arg
+                    // is already UTF-8.
+                    // reqwest does a similar maneuver more efficiently with unsafe:
+                    // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
+
                     match arg.into_string() {
                         Ok(text) => text,
                         Err(arg) => arg.to_string_lossy().into_owned(),
@@ -267,8 +279,14 @@ impl Parser {
             let arg = match arg.into_string() {
                 Ok(arg) => arg,
                 Err(arg) => {
+                    // The argument is not valid unicode.
+                    // If it's an option we'll have to do something nasty,
+                    // otherwise we can return it as-is.
+
                     #[cfg(windows)]
                     {
+                        // On Windows we can only get here if this is an option, otherwise
+                        // we return earlier.
                         // Unlike on Unix, we can't efficiently process invalid unicode.
                         // Semantically it's UTF-16, but internally it's WTF-8 (a superset of UTF-8).
                         // So we only process the raw version here, when we know we really have to.
@@ -316,6 +334,8 @@ impl Parser {
                 }
             };
 
+            // The argument is valid unicode. This is the ideal version of the
+            // code, the previous mess was purely to deal with invalid unicode.
             if arg.starts_with("--") {
                 let mut parts = arg.splitn(2, '=');
                 if let (Some(option), Some(value)) = (parts.next(), parts.next()) {
@@ -324,7 +344,7 @@ impl Parser {
                 } else {
                     Ok(Some(self.set_long(arg)))
                 }
-            } else if arg.len() > 1 && arg.starts_with('-') {
+            } else if arg.starts_with('-') && arg != "-" {
                 self.shorts = Some((arg.into(), 1));
                 self.next()
             } else {
@@ -474,6 +494,7 @@ impl Parser {
     fn check_state(&self) {
         if let Some((ref arg, pos)) = self.shorts {
             assert!(pos <= arg.len());
+            assert!(arg.len() > 1);
             if pos > 1 {
                 assert!(self.last_option != LastOption::None);
                 assert!(self.last_option != LastOption::Long);
@@ -485,6 +506,7 @@ impl Parser {
         {
             if let Some((ref arg, pos)) = self.shorts_utf16 {
                 assert!(pos <= arg.len());
+                assert!(arg.len() > 1);
                 if pos > 1 {
                     assert!(self.last_option != LastOption::None);
                     assert!(self.last_option != LastOption::Long);
