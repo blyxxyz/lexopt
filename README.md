@@ -1,11 +1,16 @@
 # Lexopt
 
+[![Crates.io](https://img.shields.io/crates/v/lexopt.svg)](https://crates.io/crates/lexopt)
+[![API reference](https://docs.rs/lexopt/badge.svg)](https://docs.rs/lexopt/)
+[![MSRV](https://img.shields.io/badge/MSRV-1.31-blue)](#)
+[![CI](https://img.shields.io/github/workflow/status/blyxxyz/lexopt/CI/master)](https://github.com/blyxxyz/lexopt/actions)
+
 Lexopt is an argument parser for Rust. It tries to have the simplest possible design that's still correct. It's so simple that it's a bit tedious to use.
 
 Lexopt is:
 - Small: one file, no dependencies, no macros. Easy to audit or vendor.
 - Correct: standard conventions are supported and ambiguity is avoided. Tested and fuzzed.
-- Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly.
+- Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly. This lets you handle badly-encoded filenames.
 - Imperative: options are returned as they are found, nothing is declared ahead of time.
 - Annoyingly minimalist: only the barest necessities are provided.
 - Unhelpful: there is no help generation and error messages often lack context.
