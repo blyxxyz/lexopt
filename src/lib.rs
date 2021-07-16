@@ -111,7 +111,7 @@ impl std::fmt::Debug for Parser {
 ///
 /// Our short option storage is cleared more aggressively, so we do need to
 /// duplicate that.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum LastOption {
     None,
     Short(char),
@@ -1116,8 +1116,7 @@ mod tests {
     ///
     /// A disadvantage is that it's still limited by arguments I could think of
     /// and only does very short sequences. Another is that it's bad at
-    /// reporting failure, you won't get to see which sequence caused the issue.
-    /// (Try adding a println!() and `cargo test basic_fuzz -- --show-output`.)
+    /// reporting failure, though the println!() helps.
     #[test]
     fn basic_fuzz() {
         #[cfg(any(windows, unix, target_os = "wasi"))]
@@ -1143,31 +1142,48 @@ mod tests {
             permutations = new;
             for permutation in &permutations {
                 println!("{:?}", permutation);
-                for mut decisions in 0..8_u8 {
-                    let permutation: Vec<OsString> =
-                        permutation.iter().map(|&s| s.clone()).collect();
-                    let mut p = Parser::from_args(permutation.into_iter());
-                    let mut counter = 0;
-                    loop {
-                        if decisions & 1 == 0 {
-                            match p.next() {
-                                Err(_) => (),
-                                Ok(Some(_)) => (),
-                                Ok(None) => break,
-                            }
-                        } else {
-                            // We never break here, but decisions reaches 0 eventually
-                            // and then we can break
-                            let _ = p.value();
-                        }
-                        decisions >>= 1;
-                        counter += 1;
-                        if counter > 100 {
-                            panic!("Stuck in loop");
-                        }
-                    }
-                }
+                let permutation: Vec<OsString> = permutation.iter().map(|&s| s.clone()).collect();
+                let p = Parser::from_args(permutation.into_iter());
+                exhaust(p, 0);
             }
         }
+    }
+
+    /// Run every sequence of .next()/.value() on a Parser.
+    fn exhaust(parser: Parser, depth: u16) {
+        if depth > 100 {
+            panic!("Stuck in loop");
+        }
+        let (mut a, mut b) = dup_parser(parser);
+        match a.next() {
+            Ok(None) => (),
+            _ => exhaust(a, depth + 1),
+        }
+        match b.value() {
+            Err(_) => (),
+            _ => exhaust(b, depth + 1),
+        }
+    }
+
+    /// Clone a parser.
+    ///
+    /// This is not a Clone impl because the original has to be modified and
+    /// I don't want to add interior mutability. It also runs forever if the
+    /// iterator is infinite, which seems impolite.
+    fn dup_parser(mut parser: Parser) -> (Parser, Parser) {
+        let args: Vec<OsString> = parser.source.collect();
+        parser.source = Box::new(args.clone().into_iter());
+        let new = Parser {
+            source: Box::new(args.into_iter()),
+            shorts: parser.shorts.clone(),
+            #[cfg(windows)]
+            shorts_utf16: parser.shorts_utf16.clone(),
+            long: parser.long.clone(),
+            long_value: parser.long_value.clone(),
+            last_option: parser.last_option,
+            finished_opts: parser.finished_opts,
+            bin_name: parser.bin_name.clone(),
+        };
+        (parser, new)
     }
 }

@@ -31,9 +31,10 @@ fuzz_target!(|data: &[u8]| {
                 Ok(None) => break,
             }
         } else {
-            // We never break here, but decisions reaches 0 eventually
-            // and then we can break
-            let _ = p.value();
+            match p.value() {
+                Ok(_) => (),
+                Err(_) => break,
+            }
         }
         decisions >>= 1;
     }
