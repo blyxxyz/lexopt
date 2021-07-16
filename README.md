@@ -121,12 +121,14 @@ This library may also be useful if a lot of control is desired, like when the ex
 This library may not be worth using if:
 - You don't care about non-unicode arguments
 - You don't care about exact compliance and correctness
+- You don't care about code size
+- You do care about great error messages
 - You hate boilerplate
 
 ## See also
 - [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if used right.
 - [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes.
-- [`pico-args`](https://github.com/RazrFalcon/pico-args): similar size to lexopt and easier to use (but less rigorous).
+- [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but less rigorous).
 - [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 

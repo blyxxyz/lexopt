@@ -224,11 +224,11 @@ impl Parser {
 
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
-                // Long flags have two forms: --option and --option=value.
+                // Long options have two forms: --option and --option=value.
                 let option = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
                     // The value can be an OsString...
                     self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
-                    // ...but the flag has to be a string.
+                    // ...but the option has to be a string.
                     String::from_utf8_lossy(&bytes[..ind]).into()
                 } else {
                     // arg.to_string_lossy().into_owned() would work, but its
