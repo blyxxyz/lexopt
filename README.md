@@ -137,9 +137,9 @@ pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternativ
 
 |                        | null | lexopt  | pico-args   | clap     | gumdrop | structopt | argh    |
 |------------------------|------|---------|-------------|----------|---------|-----------|---------|
-| Binary overhead        | 0KiB | 14.5KiB | **13.5KiB** | 372.8KiB | 17.7KiB | 371.2KiB  | 16.8KiB |
+| Binary overhead        | 0KiB | 14.7KiB | **13.5KiB** | 372.8KiB | 17.7KiB | 371.2KiB  | 16.8KiB |
 | Build time             | 0.9s | 1.7s    | **1.6s**    | 13.0s    | 7.5s    | 17.0s     | 7.5s    |
 | Number of dependencies | 0    | **0**   | **0**       | 8        | 4       | 19        | 6       |
-| Tested version         | -    | 0.1.0   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.22    | 0.1.4   |
+| Tested version         | -    | 0.1.1   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.22    | 0.1.4   |
 
 (Tests were run on x86_64 Linux with Rust 1.53 and cargo-bloat 0.10.1.)
