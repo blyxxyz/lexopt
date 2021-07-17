@@ -99,6 +99,7 @@ impl std::fmt::Debug for Parser {
             .field("long_value", &self.long_value)
             .field("last_option", &self.last_option)
             .field("finished_opts", &self.finished_opts)
+            .field("bin_name", &self.bin_name)
             .finish()
     }
 }
