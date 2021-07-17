@@ -126,8 +126,9 @@ This library may not be worth using if:
 - You hate boilerplate
 
 ## See also
-- [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if used right.
-- [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes.
+- [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if used right. Large.
+- [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes. Panic on invalid unicode.
+  - `argh` adheres to the [Fuchsia specification](https://fuchsia.dev/fuchsia-src/concepts/api/cli#command_line_arguments) and therefore does *not* support `--option=value` and `-ovalue`, only `--option value` and `-o value`.
 - [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but less rigorous).
 - [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
