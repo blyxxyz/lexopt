@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/lexopt.svg)](https://crates.io/crates/lexopt)
 [![API reference](https://docs.rs/lexopt/badge.svg)](https://docs.rs/lexopt/)
-[![MSRV](https://img.shields.io/badge/MSRV-1.31-blue)](#)
+[![MSRV](https://img.shields.io/badge/MSRV-1.31-blue)](https://blog.rust-lang.org/2018/12/06/Rust-1.31-and-rust-2018.html)
 [![CI](https://img.shields.io/github/workflow/status/blyxxyz/lexopt/CI/master)](https://github.com/blyxxyz/lexopt/actions)
 
 Lexopt is an argument parser for Rust. It tries to have the simplest possible design that's still correct. It's so simple that it's a bit tedious to use.
