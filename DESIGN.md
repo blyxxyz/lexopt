@@ -12,11 +12,7 @@ Keeping the core API clean and generic means this could perhaps be used as the b
 # Possible enhancements
 Some programs have options with optional arguments. `-fvalue` counts, `-f value` does not. There's a private method that supports exactly this behavior but I don't know if exposing it is a good idea.
 
-POSIX [recommends](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap12.html#tag_12_02) that no more options are parsed after the first positional argument. GNU getopt does this if the $POSIXLY_CORRECT environment variable is set. It could be supported by setting `finished_opts` when the first `Arg::Value` is found.
-
-POSIX also has a notion of subarguments, combining multiple values in a single option-argument by separating them with commas or spaces. This is easy enough to hand-roll for valid unicode (`.into_string()?.split(...)`) but we could provide a function that does it on `OsString`s. I can't think of a case where values may not be valid unicode but definitely don't contain commas or spaces, though.
-
-I'm not convinced any of these are good ideas.
+POSIX has a notion of subarguments, combining multiple values in a single option-argument by separating them with commas or spaces. This is easy enough to hand-roll for valid unicode (`.into_string()?.split(...)`) but we could provide a function that does it on `OsString`s. I can't think of a case where values may not be valid unicode but definitely don't contain commas or spaces, though.
 
 # Language quirks
 Sometimes Rust is a bother.

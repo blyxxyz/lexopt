@@ -355,12 +355,16 @@ impl Parser {
 
     /// Get a value for an option.
     ///
-    /// This function should be called right after seeing an option that
-    /// expects a value. Positional arguments are instead collected
+    /// This function should normally be called right after seeing an option
+    /// that expects a value, with positional arguments being collected
     /// using [`next()`][Parser::next].
     ///
     /// A value is collected even if it looks like an option
     /// (i.e., starts with `-`).
+    ///
+    /// This method can alternatively be used to collect the remaining
+    /// arguments if you want to stop processing options. For more information,
+    /// see [`examples/posixly_correct.rs`](https://github.com/blyxxyz/lexopt/blob/master/examples/posixly_correct.rs).
     ///
     /// # Errors
     ///
