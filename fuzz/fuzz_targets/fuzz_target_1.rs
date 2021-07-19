@@ -22,7 +22,6 @@ fuzz_target!(|data: &[u8]| {
         .map(Into::into)
         .map(OsString::from_vec)
         .collect();
-    let len = data.len();
     let mut p = lexopt::Parser::from_args(data);
     loop {
         if decisions & 1 == 0 {
@@ -39,7 +38,6 @@ fuzz_target!(|data: &[u8]| {
         }
         decisions >>= 1;
     }
-    assert_eq!(p.position(), len);
     assert!(matches!(p.next(), Ok(None)));
     assert!(matches!(p.next(), Ok(None)));
     assert!(matches!(p.next(), Ok(None)));

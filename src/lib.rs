@@ -85,8 +85,6 @@ pub struct Parser {
     finished_opts: bool,
     // The name of the command (argv[0])
     bin_name: Option<OsString>,
-    // The number of original arguments that have been processed
-    position: Option<usize>,
 }
 
 // source may not implement Debug
@@ -102,7 +100,6 @@ impl std::fmt::Debug for Parser {
             .field("last_option", &self.last_option)
             .field("finished_opts", &self.finished_opts)
             .field("bin_name", &self.bin_name)
-            .field("position", &self.position)
             .finish()
     }
 }
@@ -205,7 +202,7 @@ impl Parser {
             }
         }
 
-        let arg = match self.inner_next() {
+        let arg = match self.source.next() {
             Some(arg) => arg,
             None => return Ok(None),
         };
@@ -381,7 +378,7 @@ impl Parser {
             return Ok(value);
         }
 
-        if let Some(value) = self.inner_next() {
+        if let Some(value) = self.source.next() {
             return Ok(value);
         }
 
@@ -463,7 +460,6 @@ impl Parser {
             last_option: LastOption::None,
             finished_opts: false,
             bin_name,
-            position: Some(0),
         }
     }
 
@@ -485,60 +481,7 @@ impl Parser {
             last_option: LastOption::None,
             finished_opts: false,
             bin_name: None,
-            position: Some(0),
         }
-    }
-
-    /// Get the index of the argument that's currently being parsed.
-    ///
-    /// This is the index of the *original* argument, before parsing.
-    ///
-    /// Right after the `Parser` is created the return value is `0`.
-    /// After/during the first argument it's `1`. When all arguments
-    /// have been exhausted it equals the total number of arguments.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if more than [`usize::MAX`] arguments have
-    /// been processed.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # fn try_main() -> Result<(), lexopt::Error> {
-    /// # use lexopt::prelude::*;
-    /// let mut parser = lexopt::Parser::from_args(&["-ab", "-cvalue"]);
-    /// assert_eq!(parser.position(), 0);
-    ///
-    /// assert_eq!(parser.next()?, Some(Short('a')));
-    /// assert_eq!(parser.position(), 1);
-    ///
-    /// assert_eq!(parser.next()?, Some(Short('b')));
-    /// assert_eq!(parser.position(), 1);
-    ///
-    /// assert_eq!(parser.next()?, Some(Short('c')));
-    /// assert_eq!(parser.position(), 2);
-    ///
-    /// assert_eq!(parser.value()?, "value");
-    /// assert_eq!(parser.position(), 2);
-    ///
-    /// assert_eq!(parser.next()?, None);
-    /// assert_eq!(parser.position(), 2);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn position(&self) -> usize {
-        self.position.expect("argument count overflow")
-    }
-
-    /// Get the next argument from the underlying iterator.
-    ///
-    /// This is the only acceptable way to call self.source.next(), otherwise
-    /// self.position will get out of sync.
-    fn inner_next(&mut self) -> Option<OsString> {
-        let arg = self.source.next()?;
-        self.position = self.position.and_then(|n| n.checked_add(1));
-        Some(arg)
     }
 
     /// Store a long option so the caller can borrow it.
@@ -865,21 +808,13 @@ mod tests {
     #[test]
     fn test_basic() -> Result<(), Error> {
         let mut p = parse("-n 10 foo - -- baz -qux");
-        assert_eq!(p.position(), 0);
         assert_eq!(p.next()?.unwrap(), Short('n'));
-        assert_eq!(p.position(), 1);
         assert_eq!(p.value()?.parse::<i32>()?, 10);
-        assert_eq!(p.position(), 2);
         assert_eq!(p.next()?.unwrap(), Value("foo".into()));
-        assert_eq!(p.position(), 3);
         assert_eq!(p.next()?.unwrap(), Value("-".into()));
-        assert_eq!(p.position(), 4);
         assert_eq!(p.next()?.unwrap(), Value("baz".into()));
-        assert_eq!(p.position(), 6);
         assert_eq!(p.next()?.unwrap(), Value("-qux".into()));
-        assert_eq!(p.position(), 7);
         assert_eq!(p.next()?, None);
-        assert_eq!(p.position(), 7);
         assert_eq!(p.next()?, None);
         assert_eq!(p.next()?, None);
         Ok(())
@@ -889,23 +824,14 @@ mod tests {
     fn test_combined() -> Result<(), Error> {
         let mut p = parse("-abc -fvalue -xfvalue");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.position(), 1);
         assert_eq!(p.next()?.unwrap(), Short('b'));
-        assert_eq!(p.position(), 1);
         assert_eq!(p.next()?.unwrap(), Short('c'));
-        assert_eq!(p.position(), 1);
         assert_eq!(p.next()?.unwrap(), Short('f'));
-        assert_eq!(p.position(), 2);
         assert_eq!(p.value()?, "value");
-        assert_eq!(p.position(), 2);
         assert_eq!(p.next()?.unwrap(), Short('x'));
-        assert_eq!(p.position(), 3);
         assert_eq!(p.next()?.unwrap(), Short('f'));
-        assert_eq!(p.position(), 3);
         assert_eq!(p.value()?, "value");
-        assert_eq!(p.position(), 3);
         assert_eq!(p.next()?, None);
-        assert_eq!(p.position(), 3);
         Ok(())
     }
 
@@ -1209,7 +1135,7 @@ mod tests {
         ];
         let vocabulary: Vec<OsString> = VOCABULARY.iter().map(|&s| bad_string(s)).collect();
         let mut permutations = vec![vec![]];
-        for len in 1..=3 {
+        for _ in 0..3 {
             let mut new = Vec::new();
             for old in permutations {
                 for word in &vocabulary {
@@ -1223,24 +1149,24 @@ mod tests {
                 println!("{:?}", permutation);
                 let permutation: Vec<OsString> = permutation.iter().map(|&s| s.clone()).collect();
                 let p = Parser::from_args(permutation.into_iter());
-                exhaust(p, 0, len);
+                exhaust(p, 0);
             }
         }
     }
 
     /// Run every sequence of .next()/.value() on a Parser.
-    fn exhaust(parser: Parser, depth: u16, expected_pos: usize) {
+    fn exhaust(parser: Parser, depth: u16) {
         if depth > 100 {
             panic!("Stuck in loop");
         }
         let (mut a, mut b) = dup_parser(parser);
         match a.next() {
-            Ok(None) => assert_eq!(a.position(), expected_pos),
-            _ => exhaust(a, depth + 1, expected_pos),
+            Ok(None) => (),
+            _ => exhaust(a, depth + 1),
         }
         match b.value() {
-            Err(_) => assert_eq!(b.position(), expected_pos),
-            _ => exhaust(b, depth + 1, expected_pos),
+            Err(_) => (),
+            _ => exhaust(b, depth + 1),
         }
     }
 
@@ -1262,7 +1188,6 @@ mod tests {
             last_option: parser.last_option,
             finished_opts: parser.finished_opts,
             bin_name: parser.bin_name.clone(),
-            position: parser.position,
         };
         (parser, new)
     }
