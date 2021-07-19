@@ -9,5 +9,5 @@ Bug fixes:
 
 - Include `bin_name` in `Parser`'s `Debug` output.
 
-## 0.1.0 (2021-06-16)
+## 0.1.0 (2021-07-16)
 Initial release.
