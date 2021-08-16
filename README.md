@@ -76,7 +76,7 @@ Let's walk through this:
 - To get the value that belongs to an option (like `10` in `-n 10`) we call `parser.value()`.
   - This returns a standard [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html).
   - For convenience, `use lexopt::prelude::*` adds a `.parse()` method, analogous to [`str::parse`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
-- `Value` indicates a free-standing argument. In this case, a filename.
+- `Value` indicates a free-standing argument.
   - `if thing.is_none()` is a useful pattern for positional arguments. If we already found `thing` we pass it on to another case.
   - It also contains an `OsString`.
     - The standard `.into_string()` method can decode it into a plain `String`.
