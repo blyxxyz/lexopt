@@ -132,6 +132,7 @@ This library may not be worth using if:
 - [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but less rigorous).
 - [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
+- Plan 9's [*arg(3)* macros](https://9fans.github.io/plan9port/man/man3/arg.html).
 
 pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternatives) with build times and code sizes for different parsers. I've rerun the tests and added lexopt (using the program in [`examples/pico_test_app.rs`](examples/pico_test_app.rs)):
 
