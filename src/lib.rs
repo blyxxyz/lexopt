@@ -1147,6 +1147,8 @@ mod tests {
             permutations = new;
             for permutation in &permutations {
                 println!("{:?}", permutation);
+                // Clippy is wrong here, we need to collect for lifetime reasons
+                #[allow(clippy::needless_collect)]
                 let permutation: Vec<OsString> = permutation.iter().map(|&s| s.clone()).collect();
                 let p = Parser::from_args(permutation.into_iter());
                 exhaust(p, 0);
