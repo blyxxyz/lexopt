@@ -162,10 +162,17 @@ impl Parser {
                 Ok(None) => {
                     self.shorts = None;
                 }
-                // If we find '=' here we assume it's part of an option.
-                // Another possibility would be to see it as a value separator.
-                // `-=` as an option exists in the wild!
-                // See https://linux.die.net/man/1/a2ps
+                // We could find '=' here. It's either:
+                //   1. -o=value (but -o doesn't take a value)
+                //   2. -=
+                // We can either:
+                //   a. Return an error
+                //   b. Interpret it as a short flag
+                // No appropriate error exists for scenario 2. There are no other arguments
+                // that are so malformed they always cause an error.
+                // So action b is the easiest way out. That also matches clap (but not
+                // Python's argparse.)
+                // ('-=' as an option does exist in the wild, see https://linux.die.net/man/1/a2ps)
                 Ok(Some(ch)) => {
                     *pos += ch.len_utf8();
                     self.last_option = LastOption::Short(ch);
@@ -414,8 +421,14 @@ impl Parser {
             return Some(value);
         }
 
-        if let Some((arg, pos)) = self.shorts.take() {
+        if let Some((arg, mut pos)) = self.shorts.take() {
             if pos < arg.len() {
+                if arg[pos] == b'=' {
+                    // -o=value.
+                    // clap actually strips out all leading '='s, but that seems silly.
+                    // We allow `-xo=value`. Python's argparse doesn't strip the = in that case.
+                    pos += 1;
+                }
                 #[cfg(any(unix, target_os = "wasi"))]
                 {
                     #[cfg(unix)]
@@ -435,8 +448,11 @@ impl Parser {
 
         #[cfg(windows)]
         {
-            if let Some((arg, pos)) = self.shorts_utf16.take() {
+            if let Some((arg, mut pos)) = self.shorts_utf16.take() {
                 if pos < arg.len() {
+                    if arg[pos] == b'=' as u16 {
+                        pos += 1;
+                    }
                     use std::os::windows::ffi::OsStringExt;
                     return Some(OsString::from_wide(&arg[pos..]));
                 }
@@ -1020,6 +1036,49 @@ mod tests {
     }
 
     #[test]
+    fn short_opt_equals_sign() -> Result<(), Error> {
+        let mut p = parse("-a=a");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.value()?, OsString::from("a"));
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-a=a");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-a=");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.value()?, OsString::from(""));
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-a=");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.next()?, None);
+
+        Ok(())
+    }
+
+    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[test]
+    fn short_opt_equals_sign_invalid() -> Result<(), Error> {
+        let mut p = parse("-a=@");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.value()?, bad_string("@"));
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-a=@");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.next()?.unwrap(), Short('�'));
+        assert_eq!(p.next()?, None);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_value_ext() -> Result<(), Error> {
         let s = OsString::from("-10");
         assert_eq!(s.parse::<i32>()?, -10);
@@ -1127,7 +1186,7 @@ mod tests {
         #[cfg(any(windows, unix, target_os = "wasi"))]
         const VOCABULARY: &[&str] = &[
             "", "-", "--", "a", "-a", "-aa", "@", "-@", "-a@", "-@a", "--a", "--@", "--a=a",
-            "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@",
+            "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@", "-a=a", "-a=", "-=",
         ];
         #[cfg(not(any(windows, unix, target_os = "wasi")))]
         const VOCABULARY: &[&str] = &[
