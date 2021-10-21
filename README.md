@@ -92,13 +92,12 @@ The following conventions are supported:
 - Short options (`-q`)
 - Long options (`--verbose`)
 - `--` to mark the end of options
-- `=` to separate long options from values (`--option=value`)
-- Spaces to separate options from values (`--option value`, `-f value`)
-- Unseparated short options (`-fvalue`)
+- `=` to separate options from values (`--option=value`, `-o=value`)
+- Spaces to separate options from values (`--option value`, `-o value`)
+- Unseparated short options (`-ovalue`)
 - Combined short options (`-abc` to mean `-a -b -c`)
 
 These are not supported:
-- `-f=value` for short options
 - Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
 - Single-dash long options (like find's `-name`)
 - Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
