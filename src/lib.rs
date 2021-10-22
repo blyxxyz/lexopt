@@ -67,6 +67,13 @@
 
 use std::{ffi::OsString, fmt::Display, str::FromStr};
 
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(target_os = "wasi")]
+use std::os::wasi::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
 /// A parser for command line arguments.
 pub struct Parser {
     source: Box<dyn Iterator<Item = OsString> + 'static>,
@@ -225,11 +232,6 @@ impl Parser {
         #[cfg(any(unix, target_os = "wasi"))]
         {
             // Fast solution for platforms where OsStrings are just UTF-8-ish bytes
-            #[cfg(unix)]
-            use std::os::unix::ffi::{OsStrExt, OsStringExt};
-            #[cfg(target_os = "wasi")]
-            use std::os::wasi::ffi::{OsStrExt, OsStringExt};
-
             let bytes = arg.as_bytes();
             if bytes.starts_with(b"--") {
                 // Long options have two forms: --option and --option=value.
@@ -269,7 +271,6 @@ impl Parser {
             #[cfg(windows)]
             {
                 // Fast path for Windows
-                use std::os::windows::ffi::OsStrExt;
                 let mut bytes = arg.encode_wide();
                 const DASH: u16 = b'-' as u16;
                 match (bytes.next(), bytes.next()) {
@@ -298,7 +299,6 @@ impl Parser {
                         // Unlike on Unix, we can't efficiently process invalid unicode.
                         // Semantically it's UTF-16, but internally it's WTF-8 (a superset of UTF-8).
                         // So we only process the raw version here, when we know we really have to.
-                        use std::os::windows::ffi::{OsStrExt, OsStringExt};
                         let arg: Vec<u16> = arg.encode_wide().collect();
                         const DASH: u16 = b'-' as u16;
                         const EQ: u16 = b'=' as u16;
@@ -431,10 +431,6 @@ impl Parser {
                 }
                 #[cfg(any(unix, target_os = "wasi"))]
                 {
-                    #[cfg(unix)]
-                    use std::os::unix::ffi::OsStringExt;
-                    #[cfg(target_os = "wasi")]
-                    use std::os::wasi::ffi::OsStringExt;
                     return Some(OsString::from_vec(arg[pos..].into()));
                 }
                 #[cfg(not(any(unix, target_os = "wasi")))]
@@ -453,7 +449,6 @@ impl Parser {
                     if arg[pos] == b'=' as u16 {
                         pos += 1;
                     }
-                    use std::os::windows::ffi::OsStringExt;
                     return Some(OsString::from_wide(&arg[pos..]));
                 }
             }
@@ -1134,10 +1129,6 @@ mod tests {
     fn bad_string(text: &str) -> OsString {
         #[cfg(any(unix, target_os = "wasi"))]
         {
-            #[cfg(unix)]
-            use std::os::unix::ffi::OsStringExt;
-            #[cfg(target_os = "wasi")]
-            use std::os::wasi::ffi::OsStringExt;
             let mut text = text.as_bytes().to_vec();
             for ch in &mut text {
                 if *ch == b'@' {
@@ -1148,7 +1139,6 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            use std::os::windows::ffi::OsStringExt;
             let mut out = Vec::new();
             for ch in text.chars() {
                 if ch == '@' {
