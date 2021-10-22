@@ -389,16 +389,13 @@ impl Parser {
             return Ok(value);
         }
 
-        let option = match self.last_option {
-            LastOption::None => None,
-            LastOption::Short(ch) => Some(format!("-{}", ch)),
-            LastOption::Long => self.long.clone(),
-        };
-        Err(Error::MissingValue { option })
+        Err(Error::MissingValue {
+            option: self.format_last_option(),
+        })
     }
 
     /// TODO
-    pub fn values(&mut self) -> impl Iterator<Item = OsString> + '_ {
+    pub fn values(&mut self) -> Result<impl Iterator<Item = OsString> + '_, Error> {
         enum Iter<'a> {
             Single(Option<OsString>),
             Multi(Option<OsString>, &'a mut Parser),
@@ -436,12 +433,26 @@ impl Parser {
 
         if let Some((value, had_eq_sign)) = self.optional_value() {
             if had_eq_sign {
-                Iter::Single(Some(value))
+                Ok(Iter::Single(Some(value)))
             } else {
-                Iter::Multi(Some(value), self)
+                Ok(Iter::Multi(Some(value), self))
             }
         } else {
-            Iter::Multi(None, self)
+            // Make sure there's at least one option-argument.
+            match Iter::Multi(None, self).next() {
+                Some(arg) => Ok(Iter::Multi(Some(arg), self)),
+                None => Err(Error::MissingValue {
+                    option: self.format_last_option(),
+                }),
+            }
+        }
+    }
+
+    fn format_last_option(&self) -> Option<String> {
+        match self.last_option {
+            LastOption::None => None,
+            LastOption::Short(ch) => Some(format!("-{}", ch)),
+            LastOption::Long => self.long.clone(),
         }
     }
 
