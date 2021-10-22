@@ -76,7 +76,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
 /// A parser for command line arguments.
 pub struct Parser {
-    source: Box<dyn Iterator<Item = OsString> + 'static>,
+    source: std::iter::Peekable<Box<dyn Iterator<Item = OsString> + 'static>>,
     // The current string of short options being processed
     shorts: Option<(Vec<u8>, usize)>,
     #[cfg(windows)]
@@ -381,7 +381,7 @@ impl Parser {
     pub fn value(&mut self) -> Result<OsString, Error> {
         self.check_state();
 
-        if let Some(value) = self.optional_value() {
+        if let Some((value, _)) = self.optional_value() {
             return Ok(value);
         }
 
@@ -395,6 +395,54 @@ impl Parser {
             LastOption::Long => self.long.clone(),
         };
         Err(Error::MissingValue { option })
+    }
+
+    /// TODO
+    pub fn values(&mut self) -> impl Iterator<Item = OsString> + '_ {
+        enum Iter<'a> {
+            Single(Option<OsString>),
+            Multi(Option<OsString>, &'a mut Parser),
+        }
+
+        impl Iterator for Iter<'_> {
+            type Item = OsString;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                match self {
+                    Iter::Multi(None, parser) => {
+                        let arg = parser.source.peek()?;
+                        // The one argument with a leading '-' that's allowed
+                        if arg == "-" {
+                            return parser.source.next();
+                        }
+                        #[cfg(any(unix, target_os = "wasi"))]
+                        let lead_dash = arg.as_bytes().get(0) == Some(&b'-');
+                        #[cfg(windows)]
+                        let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
+                        #[cfg(not(any(unix, target_os = "wasi", windows)))]
+                        let lead_dash = arg.to_string_lossy().as_bytes().get(0) == Some(&b'-');
+
+                        if !lead_dash {
+                            parser.source.next()
+                        } else {
+                            None
+                        }
+                    }
+                    Iter::Multi(ref mut value, _) => value.take(),
+                    Iter::Single(ref mut value) => value.take(),
+                }
+            }
+        }
+
+        if let Some((value, had_eq_sign)) = self.optional_value() {
+            if had_eq_sign {
+                Iter::Single(Some(value))
+            } else {
+                Iter::Multi(Some(value), self)
+            }
+        } else {
+            Iter::Multi(None, self)
+        }
     }
 
     /// The name of the command, as in the zeroth argument of the process.
@@ -414,30 +462,35 @@ impl Parser {
     /// Get a value only if it's concatenated to an option, as in `-fvalue` or
     /// `--option=value`.
     ///
+    /// The bool indicates whether the value was joined with an = sign. This
+    /// matters for `.values()`.
+    ///
     /// I'm unsure about making this public. It'd contribute to parity with
     /// GNU getopt but it'd also detract from the cleanness of the interface.
-    fn optional_value(&mut self) -> Option<OsString> {
+    fn optional_value(&mut self) -> Option<(OsString, bool)> {
         if let Some(value) = self.long_value.take() {
-            return Some(value);
+            return Some((value, true));
         }
 
         if let Some((arg, mut pos)) = self.shorts.take() {
             if pos < arg.len() {
+                let mut had_eq_sign = false;
                 if arg[pos] == b'=' {
                     // -o=value.
                     // clap actually strips out all leading '='s, but that seems silly.
                     // We allow `-xo=value`. Python's argparse doesn't strip the = in that case.
                     pos += 1;
+                    had_eq_sign = true;
                 }
                 #[cfg(any(unix, target_os = "wasi"))]
                 {
-                    return Some(OsString::from_vec(arg[pos..].into()));
+                    return Some((OsString::from_vec(arg[pos..].into()), had_eq_sign));
                 }
                 #[cfg(not(any(unix, target_os = "wasi")))]
                 {
                     let arg = String::from_utf8(arg[pos..].into())
                         .expect("short option args on exotic platforms must be unicode");
-                    return Some(arg.into());
+                    return Some((arg.into(), had_eq_sign));
                 }
             }
         }
@@ -446,10 +499,12 @@ impl Parser {
         {
             if let Some((arg, mut pos)) = self.shorts_utf16.take() {
                 if pos < arg.len() {
+                    let mut had_eq_sign = false;
                     if arg[pos] == b'=' as u16 {
                         pos += 1;
+                        had_eq_sign = true;
                     }
-                    return Some(OsString::from_wide(&arg[pos..]));
+                    return Some((OsString::from_wide(&arg[pos..]), had_eq_sign));
                 }
             }
         }
@@ -462,7 +517,7 @@ impl Parser {
         let mut source = std::env::args_os();
         let bin_name = source.next();
         Parser {
-            source: Box::new(source),
+            source: box_dyn(source).peekable(),
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -483,7 +538,7 @@ impl Parser {
         I::Item: Into<OsString>,
     {
         Parser {
-            source: Box::new(args.into_iter().map(Into::into)),
+            source: box_dyn(args.into_iter().map(Into::into)).peekable(),
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -791,6 +846,11 @@ fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
         Some(Err(_)) => Err(units[0]),
         None => Ok(None),
     }
+}
+
+/// Purely for the sake of type inference.
+fn box_dyn(iter: impl Iterator<Item = OsString> + 'static) -> Box<dyn Iterator<Item = OsString>> {
+    Box::new(iter)
 }
 
 #[cfg(test)]
@@ -1228,9 +1288,9 @@ mod tests {
     /// iterator is infinite, which seems impolite.
     fn dup_parser(mut parser: Parser) -> (Parser, Parser) {
         let args: Vec<OsString> = parser.source.collect();
-        parser.source = Box::new(args.clone().into_iter());
+        parser.source = box_dyn(args.clone().into_iter()).peekable();
         let new = Parser {
-            source: Box::new(args.into_iter()),
+            source: box_dyn(args.into_iter()).peekable(),
             shorts: parser.shorts.clone(),
             #[cfg(windows)]
             shorts_utf16: parser.shorts_utf16.clone(),
