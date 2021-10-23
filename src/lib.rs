@@ -381,7 +381,7 @@ impl Parser {
     pub fn value(&mut self) -> Result<OsString, Error> {
         self.check_state();
 
-        if let Some((value, _)) = self.optional_value() {
+        if let Some(value) = self.optional_value() {
             return Ok(value);
         }
 
@@ -430,7 +430,7 @@ impl Parser {
         // I think this is obscure enough to leave out of the docs, but if you
         // call .values() and don't use the iterator you still consume a single
         // value.
-        if let Some((value, had_eq_sign)) = self.optional_value() {
+        if let Some((value, had_eq_sign)) = self.raw_optional_value() {
             if had_eq_sign {
                 Ok(ValuesIter {
                     pending: Some(value),
@@ -504,14 +504,15 @@ impl Parser {
         self.bin_name.as_ref().and_then(|s| s.to_str())
     }
 
-    /// Get a value only if it's concatenated to an option, as in `-fvalue` or
-    /// `--option=value`.
-    ///
-    /// The bool indicates whether the value was joined with an = sign. This
-    /// matters for `.values()`.
-    ///
-    /// TODO: refactor had_eq_sign and make this public.
-    fn optional_value(&mut self) -> Option<(OsString, bool)> {
+    /// Get a value only if it's concatenated to an option, as in `-ovalue` or
+    /// `--option=value` or `-o=value`, but not `-o value` or `--option value`.
+    pub fn optional_value(&mut self) -> Option<OsString> {
+        Some(self.raw_optional_value()?.0)
+    }
+
+    /// [`Parser::optional_value`], but indicate whether the value was joined
+    /// with an = sign. This matters for [`Parser::values`].
+    fn raw_optional_value(&mut self) -> Option<(OsString, bool)> {
         if let Some(value) = self.long_value.take() {
             return Some((value, true));
         }
@@ -1339,6 +1340,8 @@ mod tests {
     /// A disadvantage is that it's still limited by arguments I could think of
     /// and only does very short sequences. Another is that it's bad at
     /// reporting failure, though the println!() helps.
+    ///
+    /// Running with `cargo test --release` makes this a lot faster.
     #[test]
     fn basic_fuzz() {
         #[cfg(any(windows, unix, target_os = "wasi"))]
@@ -1374,13 +1377,15 @@ mod tests {
         }
     }
 
-    /// Run every sequence of methods on a Parser.
+    /// Run many sequences of methods on a Parser.
     fn exhaust(parser: Parser, depth: u16) {
         if depth > 100 {
             panic!("Stuck in loop");
         }
-        let (mut a, b) = dup_parser(parser);
-        let (mut b, mut c) = dup_parser(b);
+        let mut a = parser;
+        let mut b = dup_parser(&mut a);
+        let mut c = dup_parser(&mut a);
+        let mut d = dup_parser(&mut a);
         match a.next() {
             Ok(None) => (),
             _ => exhaust(a, depth + 1),
@@ -1396,6 +1401,10 @@ mod tests {
                 exhaust(c, depth + 1);
             }
         };
+        match d.optional_value() {
+            None => (),
+            Some(_) => exhaust(d, depth + 1),
+        }
     }
 
     /// Clone a parser.
@@ -1403,8 +1412,8 @@ mod tests {
     /// This is not a Clone impl because the original has to be modified and
     /// I don't want to add interior mutability. It also runs forever if the
     /// iterator is infinite, which seems impolite.
-    fn dup_parser(mut parser: Parser) -> (Parser, Parser) {
-        let args: Vec<OsString> = parser.source.collect();
+    fn dup_parser(parser: &mut Parser) -> Parser {
+        let args: Vec<OsString> = parser.source.by_ref().collect();
         parser.source = box_dyn(args.clone().into_iter()).peekable();
         let new = Parser {
             source: box_dyn(args.into_iter()).peekable(),
@@ -1417,6 +1426,6 @@ mod tests {
             finished_opts: parser.finished_opts,
             bin_name: parser.bin_name.clone(),
         };
-        (parser, new)
+        new
     }
 }

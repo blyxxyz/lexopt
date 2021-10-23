@@ -1,7 +1,7 @@
 Some rambling thoughts that don't deserve a place in the README.
 
 # Cleanness
-The API consists of two clean simple powerful methods with no arguments and no configurability, plus some more junk to make them convenient to use.
+The API consists of a handful of clean simple powerful methods with no arguments and no configurability, plus some more junk to make them convenient to use.
 
 Language features are to be preferred over library features as much as possible. That way the library can stay smaller and code that uses the library is hopefully easier to understand in detail for people who aren't familiar with the library.
 
@@ -10,8 +10,6 @@ I don't really like the `ValueExt` extension trait, but I can't think of a nicer
 Keeping the core API clean and generic means this could perhaps be used as the basis of a more complete parser.
 
 # Possible enhancements
-Some programs have options with optional arguments. `-fvalue` counts, `-f value` does not. There's a private method that supports exactly this behavior but I don't know if exposing it is a good idea.
-
 POSIX has a notion of subarguments, combining multiple values in a single option-argument by separating them with commas or spaces. This is easy enough to hand-roll for valid unicode (`.into_string()?.split(...)`) but we could provide a function that does it on `OsString`s. I can't think of a case where values may not be valid unicode but definitely don't contain commas or spaces, though.
 
 # Language quirks

@@ -83,7 +83,7 @@ Let's walk through this:
 - If we don't know what to do with an argument we use `return Err(arg.unexpected())` to turn it into an error message.
 - Strings can be promoted to errors for custom error messages.
 
-This covers almost all the functionality in the library. Lexopt does very little for you.
+This covers most of the functionality in the library. Lexopt does very little for you.
 
 For a larger example with useful patterns, see [`examples/cargo.rs`](examples/cargo.rs).
 
@@ -96,9 +96,10 @@ The following conventions are supported:
 - Spaces to separate options from values (`--option value`, `-o value`)
 - Unseparated short options (`-ovalue`)
 - Combined short options (`-abc` to mean `-a -b -c`)
+- Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`) (`Parser::optional_value()`)
+- Options with multiple arguments (`Parser::values()`)
 
 These are not supported:
-- Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`)
 - Single-dash long options (like find's `-name`)
 - Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
