@@ -1,5 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
+use std::convert::TryInto;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 
@@ -8,10 +9,10 @@ use std::os::unix::ffi::OsStringExt;
 fuzz_target!(|data: &[u8]| {
     let mut data = data;
     let mut decisions;
-    if data.len() > 4 {
-        // Decide whether to call .next() or .value(), 32 times
-        decisions = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-        data = &data[4..];
+    if data.len() > 8 {
+        // Decide which method to call, 64 / 4 = 16 times
+        decisions = u64::from_le_bytes(data[..8].try_into().unwrap());
+        data = &data[8..];
     } else {
         decisions = 0;
     }
@@ -24,19 +25,29 @@ fuzz_target!(|data: &[u8]| {
         .collect();
     let mut p = lexopt::Parser::from_args(data);
     loop {
-        if decisions & 1 == 0 {
-            match p.next() {
+        match decisions % 4 {
+            0 => match p.next() {
                 Err(_) => (),
                 Ok(Some(_)) => (),
                 Ok(None) => break,
-            }
-        } else {
-            match p.value() {
+            },
+            1 => match p.value() {
                 Ok(_) => (),
                 Err(_) => break,
-            }
+            },
+            2 => match p.values() {
+                Ok(iter) => {
+                    let _ = iter.collect::<Vec<_>>();
+                }
+                Err(_) => (),
+            },
+            3 => match p.values() {
+                Ok(_) => (),
+                Err(_) => (),
+            },
+            _ => unreachable!(),
         }
-        decisions >>= 1;
+        decisions /= 4;
     }
     assert!(matches!(p.next(), Ok(None)));
     assert!(matches!(p.next(), Ok(None)));

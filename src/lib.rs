@@ -394,57 +394,89 @@ impl Parser {
         })
     }
 
-    /// TODO
-    pub fn values(&mut self) -> Result<impl Iterator<Item = OsString> + '_, Error> {
-        enum Iter<'a> {
-            Single(Option<OsString>),
-            Multi(Option<OsString>, &'a mut Parser),
-        }
+    /// Gather multiple values for an option.
+    ///
+    /// This is used for options that take multiple arguments, such as a
+    /// `--command` flag that's invoked as `app --command echo 'Hello world'`.
+    ///
+    /// It will gather arguments until another option is found, or `--` is found, or
+    /// the end of the command line is reached. This differs from `.value()`, which
+    /// takes a value even if it looks like an option.
+    ///
+    /// An equals sign (`=`) will limit this to a single value. That means `-a=b c` and
+    /// `--opt=b c` will only yield `"b"` while `-a b c`, `-ab c` and `--opt b c` will
+    /// yield `"b"`, `"c"`.
+    ///
+    /// # Errors
+    /// If not at least one value is found then [`Error::MissingValue`] is returned.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # fn main() -> Result<(), lexopt::Error> {
+    /// # use lexopt::prelude::*;
+    /// # use std::ffi::OsString;
+    /// # use std::path::PathBuf;
+    /// # let mut parser = lexopt::Parser::from_env();
+    /// let arguments: Vec<OsString> = parser.values()?.collect();
+    /// let at_most_three_files: Vec<PathBuf> = parser.values()?.take(3).map(Into::into).collect();
+    /// for value in parser.values()? {
+    ///     // ...
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub fn values(&mut self) -> Result<ValuesIter<'_>, Error> {
+        self.check_state();
 
-        impl Iterator for Iter<'_> {
-            type Item = OsString;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                match self {
-                    Iter::Multi(None, parser) => {
-                        let arg = parser.source.peek()?;
-                        // The one argument with a leading '-' that's allowed
-                        if arg == "-" {
-                            return parser.source.next();
-                        }
-                        #[cfg(any(unix, target_os = "wasi"))]
-                        let lead_dash = arg.as_bytes().get(0) == Some(&b'-');
-                        #[cfg(windows)]
-                        let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
-                        #[cfg(not(any(unix, target_os = "wasi", windows)))]
-                        let lead_dash = arg.to_string_lossy().as_bytes().get(0) == Some(&b'-');
-
-                        if !lead_dash {
-                            parser.source.next()
-                        } else {
-                            None
-                        }
-                    }
-                    Iter::Multi(ref mut value, _) => value.take(),
-                    Iter::Single(ref mut value) => value.take(),
-                }
-            }
-        }
-
+        // I think this is obscure enough to leave out of the docs, but if you
+        // call .values() and don't use the iterator you still consume a single
+        // value.
         if let Some((value, had_eq_sign)) = self.optional_value() {
             if had_eq_sign {
-                Ok(Iter::Single(Some(value)))
+                Ok(ValuesIter {
+                    pending: Some(value),
+                    parser: None,
+                })
             } else {
-                Ok(Iter::Multi(Some(value), self))
+                Ok(ValuesIter {
+                    pending: Some(value),
+                    parser: Some(self),
+                })
             }
         } else {
             // Make sure there's at least one option-argument.
-            match Iter::Multi(None, self).next() {
-                Some(arg) => Ok(Iter::Multi(Some(arg), self)),
-                None => Err(Error::MissingValue {
+            if let Some(value) = self.next_normal() {
+                Ok(ValuesIter {
+                    pending: Some(value),
+                    parser: Some(self),
+                })
+            } else {
+                Err(Error::MissingValue {
                     option: self.format_last_option(),
-                }),
+                })
             }
+        }
+    }
+
+    /// Consume an argument and consume it if it's "normal" (not an option or --).
+    ///
+    /// Used by [`Parser::values`].
+    fn next_normal(&mut self) -> Option<OsString> {
+        let arg = self.source.peek()?;
+        // The one argument with a leading '-' that's allowed
+        if arg == "-" {
+            return self.source.next();
+        }
+        #[cfg(any(unix, target_os = "wasi"))]
+        let lead_dash = arg.as_bytes().get(0) == Some(&b'-');
+        #[cfg(windows)]
+        let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
+        #[cfg(not(any(unix, target_os = "wasi", windows)))]
+        let lead_dash = arg.to_string_lossy().as_bytes().get(0) == Some(&b'-');
+
+        if !lead_dash {
+            self.source.next()
+        } else {
+            None
         }
     }
 
@@ -476,8 +508,7 @@ impl Parser {
     /// The bool indicates whether the value was joined with an = sign. This
     /// matters for `.values()`.
     ///
-    /// I'm unsure about making this public. It'd contribute to parity with
-    /// GNU getopt but it'd also detract from the cleanness of the interface.
+    /// TODO: refactor had_eq_sign and make this public.
     fn optional_value(&mut self) -> Option<(OsString, bool)> {
         if let Some(value) = self.long_value.take() {
             return Some((value, true));
@@ -625,6 +656,26 @@ impl<'a> Arg<'a> {
             Arg::Short(short) => Error::UnexpectedOption(format!("-{}", short)),
             Arg::Long(long) => Error::UnexpectedOption(format!("--{}", long)),
             Arg::Value(value) => Error::UnexpectedArgument(value),
+        }
+    }
+}
+
+/// An iterator for multiple option-arguments, returned by [`Parser::values`].
+pub struct ValuesIter<'a> {
+    pending: Option<OsString>,
+    parser: Option<&'a mut Parser>,
+}
+
+impl Iterator for ValuesIter<'_> {
+    type Item = OsString;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(value) = self.pending.take() {
+            Some(value)
+        } else if let Some(parser) = &mut self.parser {
+            parser.next_normal()
+        } else {
+            None
         }
     }
 }
@@ -1145,6 +1196,50 @@ mod tests {
     }
 
     #[test]
+    fn multi_values() -> Result<(), Error> {
+        for &case in &["-a b c d", "-ab c d", "-a b c d --", "--a b c d"] {
+            let mut p = parse(case);
+            p.next()?.unwrap();
+            let mut iter = p.values()?;
+            let values: Vec<_> = iter.by_ref().collect();
+            assert_eq!(values, &["b", "c", "d"]);
+            assert!(iter.next().is_none());
+            assert!(p.next()?.is_none());
+        }
+
+        for &case in &["-a=b c", "--a=b c"] {
+            let mut p = parse(case);
+            p.next()?.unwrap();
+            let mut iter = p.values()?;
+            let values: Vec<_> = iter.by_ref().collect();
+            assert_eq!(values, &["b"]);
+            assert!(iter.next().is_none());
+            assert_eq!(p.next()?.unwrap(), Value("c".into()));
+            assert!(p.next()?.is_none());
+        }
+
+        for &case in &["-a", "--a", "-a -b", "-a -- b", "-a --"] {
+            let mut p = parse(case);
+            p.next()?.unwrap();
+            assert!(p.values().is_err());
+            assert!(p.next().is_ok());
+            assert!(p.next().unwrap().is_none());
+        }
+
+        for &case in &["-a=", "--a="] {
+            let mut p = parse(case);
+            p.next()?.unwrap();
+            let mut iter = p.values()?;
+            let values: Vec<_> = iter.by_ref().collect();
+            assert_eq!(values, &[""]);
+            assert!(iter.next().is_none());
+            assert!(p.next()?.is_none());
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_value_ext() -> Result<(), Error> {
         let s = OsString::from("-10");
         assert_eq!(s.parse::<i32>()?, -10);
@@ -1251,7 +1346,8 @@ mod tests {
         ];
         #[cfg(not(any(windows, unix, target_os = "wasi")))]
         const VOCABULARY: &[&str] = &[
-            "", "-", "--", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a",
+            "", "-", "--", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a", "-a=a", "-a=",
+            "-=",
         ];
         let vocabulary: Vec<OsString> = VOCABULARY.iter().map(|&s| bad_string(s)).collect();
         let mut permutations = vec![vec![]];
@@ -1276,12 +1372,13 @@ mod tests {
         }
     }
 
-    /// Run every sequence of .next()/.value() on a Parser.
+    /// Run every sequence of methods on a Parser.
     fn exhaust(parser: Parser, depth: u16) {
         if depth > 100 {
             panic!("Stuck in loop");
         }
-        let (mut a, mut b) = dup_parser(parser);
+        let (mut a, b) = dup_parser(parser);
+        let (mut b, mut c) = dup_parser(b);
         match a.next() {
             Ok(None) => (),
             _ => exhaust(a, depth + 1),
@@ -1290,6 +1387,13 @@ mod tests {
             Err(_) => (),
             _ => exhaust(b, depth + 1),
         }
+        match c.values() {
+            Err(_) => (),
+            Ok(mut iter) => {
+                let _: Vec<_> = iter.by_ref().collect();
+                exhaust(c, depth + 1);
+            }
+        };
     }
 
     /// Clone a parser.
