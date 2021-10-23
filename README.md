@@ -12,7 +12,7 @@ Lexopt is:
 - Correct: standard conventions are supported and ambiguity is avoided. Tested and fuzzed.
 - Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly. This lets you handle badly-encoded filenames.
 - Imperative: options are returned as they are found, nothing is declared ahead of time.
-- Annoyingly minimalist: only the barest necessities are provided.
+- Annoyingly minimalist: only basic functionality is provided.
 - Unhelpful: there is no help generation and error messages often lack context.
 
 ## Example
@@ -96,8 +96,8 @@ The following conventions are supported:
 - Spaces to separate options from values (`--option value`, `-o value`)
 - Unseparated short options (`-ovalue`)
 - Combined short options (`-abc` to mean `-a -b -c`)
-- Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`) (`Parser::optional_value()`)
-- Options with multiple arguments (`Parser::values()`)
+- Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`) ([`Parser::optional_value()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.optional_value))
+- Options with multiple arguments ([`Parser::values()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.values))
 
 These are not supported:
 - Single-dash long options (like find's `-name`)
@@ -129,7 +129,7 @@ This library may not be worth using if:
 - [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if used right. Large.
 - [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes. Panic on invalid unicode.
   - `argh` adheres to the [Fuchsia specification](https://fuchsia.dev/fuchsia-src/concepts/api/cli#command_line_arguments) and therefore does *not* support `--option=value` and `-ovalue`, only `--option value` and `-o value`.
-- [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but less rigorous).
+- [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but [less rigorous](https://old.reddit.com/r/rust/comments/oley2c/lexopt_a_minimalist_pedantic_argument_parser/h5el36b/)).
 - [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 - Plan 9's [*arg(3)* macros](https://9fans.github.io/plan9port/man/man3/arg.html).
@@ -138,9 +138,9 @@ pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternativ
 
 |                        | null | lexopt  | pico-args   | clap     | gumdrop | structopt | argh    |
 |------------------------|------|---------|-------------|----------|---------|-----------|---------|
-| Binary overhead        | 0KiB | 14.5KiB | **13.5KiB** | 372.8KiB | 17.7KiB | 371.2KiB  | 16.8KiB |
-| Build time             | 0.9s | 1.7s    | **1.6s**    | 13.0s    | 7.5s    | 17.0s     | 7.5s    |
+| Binary overhead        | 0KiB | 16.8KiB | **14.7KiB** | 355.1KiB | 18.6KiB | 353.3KiB  | 20.6KiB |
+| Build time             | 1.0s | 1.8s    | **1.6s**    | 11.2s    | 6.7s    | 14.0s     | 7.0s    |
 | Number of dependencies | 0    | **0**   | **0**       | 8        | 4       | 19        | 6       |
-| Tested version         | -    | 0.1.0   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.22    | 0.1.4   |
+| Tested version         | -    | 0.2.0   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.25    | 0.1.6   |
 
-(Tests were run on x86_64 Linux with Rust 1.53 and cargo-bloat 0.10.1.)
+(Tests were run on x86_64 Linux with Rust 1.56 and cargo-bloat 0.10.1.)

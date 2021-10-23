@@ -1,4 +1,6 @@
-## 0.2.0 (unreleased)
+## 0.2.0 (2021-10-23)
+
+While this release is not strictly backward-compatible it should break very few programs.
 
 New:
 
@@ -11,8 +13,7 @@ Changes:
 
 - Support `=` as a separator for short options (as in `-o=value`).
 - Sanitize the binary name if it's invalid unicode instead of ignoring it.
-
-These changes are not strictly backward-compatible, hence the version bump, but problems are unlikely.
+- Make `Error::UnexpectedValue.option` a `String` instead of an `Option<String>`.
 
 Bug fixes:
 
