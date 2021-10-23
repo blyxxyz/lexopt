@@ -157,7 +157,7 @@ impl Parser {
         if let Some(value) = self.long_value.take() {
             // Last time we got `--long=value`, and `value` hasn't been used.
             return Err(Error::UnexpectedValue {
-                option: self.long.clone(),
+                option: self.long.clone().unwrap(),
                 value,
             });
         }
@@ -169,17 +169,17 @@ impl Parser {
                 Ok(None) => {
                     self.shorts = None;
                 }
-                // We could find '=' here. It's either:
-                //   1. -o=value (but -o doesn't take a value)
-                //   2. -=
-                // We can either:
-                //   a. Return an error
-                //   b. Interpret it as a short flag
-                // No appropriate error exists for scenario 2. There are no other arguments
-                // that are so malformed they always cause an error.
-                // So action b is the easiest way out. That also matches clap (but not
-                // Python's argparse.)
-                // ('-=' as an option does exist in the wild, see https://linux.die.net/man/1/a2ps)
+                // If we find "-=[...]" we interpret it as an option.
+                // If we find "-o=..." then there's an unexpected value.
+                // ('-=' as an option exists, see https://linux.die.net/man/1/a2ps.)
+                // clap always interprets it as a short flag in this case, but
+                // that feels sloppy.
+                Ok(Some('=')) if *pos > 1 => {
+                    return Err(Error::UnexpectedValue {
+                        option: self.format_last_option().unwrap(),
+                        value: self.optional_value().unwrap(),
+                    });
+                }
                 Ok(Some(ch)) => {
                     *pos += ch.len_utf8();
                     self.last_option = LastOption::Short(ch);
@@ -201,6 +201,12 @@ impl Parser {
                 match first_utf16_codepoint(&arg[*pos..]) {
                     Ok(None) => {
                         self.shorts_utf16 = None;
+                    }
+                    Ok(Some('=')) if *pos > 1 => {
+                        return Err(Error::UnexpectedValue {
+                            option: self.format_last_option().unwrap(),
+                            value: self.optional_value().unwrap(),
+                        });
                     }
                     Ok(Some(ch)) => {
                         *pos += ch.len_utf16();
@@ -482,6 +488,7 @@ impl Parser {
         }
     }
 
+    #[inline(never)]
     fn format_last_option(&self) -> Option<String> {
         match self.last_option {
             LastOption::None => None,
@@ -743,8 +750,8 @@ pub enum Error {
 
     /// An option had a value when none was expected.
     UnexpectedValue {
-        /// The option. This is always a long option.
-        option: Option<String>,
+        /// The option.
+        option: String,
         /// The value.
         value: OsString,
     },
@@ -778,21 +785,12 @@ impl Display for Error {
             }
             UnexpectedOption(option) => write!(f, "invalid option '{}'", option),
             UnexpectedArgument(value) => write!(f, "unexpected argument {:?}", value),
-            UnexpectedValue {
-                option: Some(option),
-                value,
-            } => {
+            UnexpectedValue { option, value } => {
                 write!(
                     f,
                     "unexpected argument for option '{}': {:?}",
                     option, value
                 )
-            }
-            UnexpectedValue {
-                option: None,
-                value,
-            } => {
-                write!(f, "unexpected argument for option: {:?}", value)
             }
             NonUnicodeValue(value) => write!(f, "argument is invalid unicode: {:?}", value),
             ParsingFailed { value, error } => {
@@ -1011,10 +1009,7 @@ mod tests {
         assert_eq!(p.value()?, "qux");
         assert_eq!(p.next()?.unwrap(), Long("foobar"));
         match p.next().unwrap_err() {
-            Error::UnexpectedValue {
-                option: Some(option),
-                value,
-            } => {
+            Error::UnexpectedValue { option, value } => {
                 assert_eq!(option, "--foobar");
                 assert_eq!(value, "qux=baz");
             }
@@ -1189,15 +1184,20 @@ mod tests {
 
     #[test]
     fn short_opt_equals_sign() -> Result<(), Error> {
-        let mut p = parse("-a=a");
+        let mut p = parse("-a=b");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.value()?, OsString::from("a"));
+        assert_eq!(p.value()?, OsString::from("b"));
         assert_eq!(p.next()?, None);
 
-        let mut p = parse("-a=a");
+        let mut p = parse("-a=b");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.next()?.unwrap(), Short('='));
-        assert_eq!(p.next()?.unwrap(), Short('a'));
+        match p.next().unwrap_err() {
+            Error::UnexpectedValue { option, value } => {
+                assert_eq!(option, "-a");
+                assert_eq!(value, "b");
+            }
+            _ => panic!(),
+        }
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-a=");
@@ -1207,8 +1207,22 @@ mod tests {
 
         let mut p = parse("-a=");
         assert_eq!(p.next()?.unwrap(), Short('a'));
+        match p.next().unwrap_err() {
+            Error::UnexpectedValue { option, value } => {
+                assert_eq!(option, "-a");
+                assert_eq!(value, "");
+            }
+            _ => panic!(),
+        }
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-=");
         assert_eq!(p.next()?.unwrap(), Short('='));
         assert_eq!(p.next()?, None);
+
+        let mut p = parse("-=a");
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.value()?, "a");
 
         Ok(())
     }
@@ -1223,9 +1237,18 @@ mod tests {
 
         let mut p = parse("-a=@");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.next()?.unwrap(), Short('='));
-        assert_eq!(p.next()?.unwrap(), Short('�'));
+        match p.next().unwrap_err() {
+            Error::UnexpectedValue { option, value } => {
+                assert_eq!(option, "-a");
+                assert_eq!(value, bad_string("@"));
+            }
+            _ => panic!(),
+        }
         assert_eq!(p.next()?, None);
+
+        let mut p = parse("-=@");
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.value()?, bad_string("@"));
 
         Ok(())
     }
