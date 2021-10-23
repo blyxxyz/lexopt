@@ -91,7 +91,7 @@ pub struct Parser {
     // Whether we encountered "--" and know no more options are coming
     finished_opts: bool,
     // The name of the command (argv[0])
-    bin_name: Option<OsString>,
+    bin_name: Option<String>,
 }
 
 // source may not implement Debug
@@ -492,16 +492,20 @@ impl Parser {
 
     /// The name of the command, as in the zeroth argument of the process.
     ///
-    /// This may be useful to include in help or error messages.
+    /// This is intended for use in messages. If the name is not valid unicode
+    /// it will be sanitized with replacement characters as by
+    /// [`String::from_utf8_lossy`].
     ///
-    /// Returns `None` if:
-    /// - The parser was not constructed by [`Parser::from_env`]
-    /// - The name is not valid unicode
-    /// - The name was not supplied by the system
+    /// To get the current executable, use [`std::env::current_exe`].
     ///
-    /// Using [`Option::unwrap_or`] for a fallback value is recommended.
+    /// # Example
+    /// ```
+    /// let mut parser = lexopt::Parser::from_env();
+    /// let bin_name = parser.bin_name().unwrap_or("myapp");
+    /// println!("{}: Some message", bin_name);
+    /// ```
     pub fn bin_name(&self) -> Option<&str> {
-        self.bin_name.as_ref().and_then(|s| s.to_str())
+        Some(self.bin_name.as_ref()?)
     }
 
     /// Get a value only if it's concatenated to an option, as in `-ovalue` or
@@ -557,10 +561,7 @@ impl Parser {
         None
     }
 
-    /// Create a parser from the environment using [`std::env::args_os`].
-    pub fn from_env() -> Parser {
-        let mut source = std::env::args_os();
-        let bin_name = source.next();
+    fn new(bin_name: Option<OsString>, source: impl Iterator<Item = OsString> + 'static) -> Parser {
         Parser {
             source: box_dyn(source).peekable(),
             shorts: None,
@@ -570,29 +571,60 @@ impl Parser {
             long_value: None,
             last_option: LastOption::None,
             finished_opts: false,
-            bin_name,
+            bin_name: bin_name.map(|s| match s.into_string() {
+                Ok(text) => text,
+                Err(text) => text.to_string_lossy().into_owned(),
+            }),
         }
     }
 
-    /// Create a parser from an iterator. This may be useful for testing.
+    /// Create a parser from the environment using [`std::env::args_os`].
     ///
-    /// The executable name must not be included.
+    /// This is the usual way to create a `Parser`.
+    pub fn from_env() -> Parser {
+        let mut source = std::env::args_os();
+        Parser::new(source.next(), source)
+    }
+
+    // The collision with `FromIterator::from_iter` is a bit unfortunate.
+    // This name is used because:
+    // - `from_args()` was taken, and changing its behavior without changing
+    //   its signature would be evil.
+    // - structopt also has a method by that name, so there's a precedent.
+    // - I couldn't think of a better one.
+    // Actually implementing `FromIterator` is not (efficiently) possible
+    // because it must support non-static lifetimes.
+
+    /// Create a parser from an iterator. This is useful for testing among other things.
+    ///
+    /// The first item from the iterator **must** be the binary name, as from [`std::env::args_os`].
+    ///
+    /// The argument needs to have a static lifetime. If your iterator does not have this
+    /// then an easy fix is to collect it into a [`Vec`] first.
+    ///
+    /// # Example
+    /// ```
+    /// let mut parser = lexopt::Parser::from_iter(&["myapp", "-n", "10", "./foo.bar"]);
+    /// ```
+    pub fn from_iter<I>(args: I) -> Parser
+    where
+        I: IntoIterator + 'static,
+        I::Item: Into<OsString>,
+    {
+        let mut args = args.into_iter().map(Into::into);
+        Parser::new(args.next(), args)
+    }
+
+    /// Create a parser from an iterator that does **not** include the binary name.
+    ///
+    /// [`bin_name()`](`Parser::bin_name`) will return `None`. Consider using
+    /// [`Parser::from_iter`] instead.
     pub fn from_args<I>(args: I) -> Parser
     where
         I: IntoIterator + 'static,
         I::Item: Into<OsString>,
     {
-        Parser {
-            source: box_dyn(args.into_iter().map(Into::into)).peekable(),
-            shorts: None,
-            #[cfg(windows)]
-            shorts_utf16: None,
-            long: None,
-            long_value: None,
-            last_option: LastOption::None,
-            finished_opts: false,
-            bin_name: None,
-        }
+        Parser::new(None, args.into_iter().map(Into::into))
     }
 
     /// Store a long option so the caller can borrow it.
@@ -1240,6 +1272,23 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn bin_name() {
+        assert_eq!(
+            Parser::from_iter(&["foo", "bar", "baz"]).bin_name(),
+            Some("foo")
+        );
+        assert_eq!(Parser::from_args(&["foo", "bar", "baz"]).bin_name(), None);
+        assert_eq!(Parser::from_iter(&[] as &[&str]).bin_name(), None);
+        assert_eq!(Parser::from_iter(&[""]).bin_name(), Some(""));
+        assert!(Parser::from_env().bin_name().is_some());
+        #[cfg(any(unix, target_os = "wasi", windows))]
+        assert_eq!(
+            Parser::from_iter(vec![bad_string("foo@bar")]).bin_name(),
+            Some("foo�bar")
+        );
     }
 
     #[test]
