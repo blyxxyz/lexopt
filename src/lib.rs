@@ -462,8 +462,10 @@ impl Parser {
     /// Used by [`Parser::values`].
     fn next_normal(&mut self) -> Option<OsString> {
         let arg = self.source.peek()?;
-        // The one argument with a leading '-' that's allowed
-        if arg == "-" {
+        // "-" is the one argument with a leading '-' that's allowed.
+        // If we already found a -- then we're really not supposed to be here,
+        // but interpreting everything verbatim seems best.
+        if arg == "-" || self.finished_opts {
             return self.source.next();
         }
         #[cfg(any(unix, target_os = "wasi"))]
