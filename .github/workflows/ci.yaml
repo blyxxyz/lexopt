@@ -15,10 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: rustup toolchain add 1.31 1.39 stable nightly
-      - run: cargo +1.31 test --lib  # MSRV (examples don't compile)
-      - run: cargo +1.39 test        # First version where examples compile
-      - run: cargo +stable test
-      - run: cargo +nightly test
+      - run: cargo +1.31 test --release --lib  # MSRV (examples don't compile)
+      - run: cargo +1.39 test --release        # First version where examples compile
+      - run: cargo +stable test --release
+      - run: cargo +nightly test --release
 
   test_wasm:
     name: Test (WASM)
