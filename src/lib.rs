@@ -1,4 +1,4 @@
-//! A pathologically simple command line tokenizer.
+//! A pathologically simple command line argument parser.
 //!
 //! Most argument parsers are declarative: you tell them what to parse,
 //! and they do it.
@@ -65,7 +65,11 @@
 #![allow(clippy::should_implement_trait)]
 #![allow(clippy::map_clone)] // Because of the MSRV (setting MSRV in clippy.toml doesn't help)
 
-use std::{ffi::OsString, fmt::Display, str::FromStr};
+use std::{
+    ffi::{OsStr, OsString},
+    fmt::Display,
+    str::FromStr,
+};
 
 #[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -380,10 +384,6 @@ impl Parser {
     /// A value is collected even if it looks like an option
     /// (i.e., starts with `-`).
     ///
-    /// This method can alternatively be used to collect the remaining
-    /// arguments if you want to stop processing options. For more information,
-    /// see [`examples/posixly_correct.rs`](https://github.com/blyxxyz/lexopt/blob/master/examples/posixly_correct.rs).
-    ///
     /// # Errors
     ///
     /// An [`Error::MissingValue`] is returned if the end of the command
@@ -490,6 +490,46 @@ impl Parser {
         } else {
             None
         }
+    }
+
+    /// Take raw arguments from the original command line.
+    ///
+    /// This returns an iterator of [`OsString`]s. Any arguments that are not
+    /// consumed are kept, so you can continue parsing after you're done with
+    /// the iterator.
+    ///
+    /// To inspect an argument without consuming it, use [`RawArgs::peek`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error::UnexpectedValue`] if the last option had a left-over
+    /// argument, as in `--option=value`, `-ovalue`.
+    ///
+    /// After this error the method is guaranteed to succeed.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # fn main() -> Result<(), lexopt::Error> {
+    /// # use lexopt::prelude::*;
+    /// # use std::ffi::OsString;
+    /// # use std::path::PathBuf;
+    /// # let mut parser = lexopt::Parser::from_env();
+    /// # while let Some(arg) = parser.next()? {
+    /// # match arg {
+    /// Value(prog) => {
+    ///     let args: Vec<_> = parser.raw_args()?.collect();
+    ///     let command = std::process::Command::new(prog).args(args);
+    /// }
+    /// # _ => (), }} Ok(()) }
+    pub fn raw_args(&mut self) -> Result<RawArgs<'_>, Error> {
+        if let Some(value) = self.optional_value() {
+            return Err(Error::UnexpectedValue {
+                option: self.format_last_option().unwrap(),
+                value,
+            });
+        }
+
+        Ok(RawArgs(&mut self.source))
     }
 
     #[inline(never)]
@@ -725,6 +765,45 @@ impl Iterator for ValuesIter<'_> {
         } else {
             None
         }
+    }
+}
+
+/// An iterator for the remaining raw arguments, returned by [`Parser::raw_args`].
+pub struct RawArgs<'a>(&'a mut BoxedIter);
+
+impl Iterator for RawArgs<'_> {
+    type Item = OsString;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl RawArgs<'_> {
+    /// Return a reference to the next() value without consuming it.
+    ///
+    /// An argument you peek but do not consume will still be seen by `Parser`
+    /// if you resume parsing.
+    ///
+    /// See [`Iterator::peekable`], [`std::iter::Peekable::peek`].
+    pub fn peek(&mut self) -> Option<&OsStr> {
+        Some(self.0.peek()?.as_os_str())
+    }
+
+    /// Consume and return the next argument if a condition is true.
+    ///
+    /// See [`std::iter::Peekable::next_if`].
+    pub fn next_if(&mut self, func: impl FnOnce(&OsStr) -> bool) -> Option<OsString> {
+        match self.peek() {
+            Some(arg) if func(arg) => self.next(),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Debug for RawArgs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RawArgs")
     }
 }
 
@@ -1306,6 +1385,33 @@ mod tests {
     }
 
     #[test]
+    fn raw_args() -> Result<(), Error> {
+        let mut p = parse("-a b c d");
+        assert_eq!(p.raw_args()?.collect::<Vec<_>>(), &["-a", "b", "c", "d"]);
+        assert!(p.next()?.is_none());
+
+        let mut p = parse("-ab c d");
+        p.next()?;
+        assert!(p.raw_args().is_err());
+        assert_eq!(p.raw_args()?.collect::<Vec<_>>(), &["c", "d"]);
+        assert!(p.next()?.is_none());
+
+        let mut p = parse("-a b c d");
+        assert_eq!(p.raw_args()?.take(3).collect::<Vec<_>>(), &["-a", "b", "c"]);
+        assert_eq!(p.next()?, Some(Value("d".into())));
+        assert!(p.next()?.is_none());
+
+        let mut p = parse("a");
+        let mut it = p.raw_args()?;
+        assert_eq!(it.peek(), Some("a".as_ref()));
+        assert_eq!(it.next_if(|_| false), None);
+        assert_eq!(p.next()?, Some(Value("a".into())));
+        assert!(p.next()?.is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn bin_name() {
         assert_eq!(
             Parser::from_iter(&["foo", "bar", "baz"]).bin_name(),
@@ -1466,6 +1572,7 @@ mod tests {
         let mut b = dup_parser(&mut a);
         let mut c = dup_parser(&mut a);
         let mut d = dup_parser(&mut a);
+        let mut e = dup_parser(&mut a);
         match a.next() {
             Ok(None) => (),
             _ => exhaust(a, depth + 1),
@@ -1484,6 +1591,10 @@ mod tests {
         match d.optional_value() {
             None => (),
             Some(_) => exhaust(d, depth + 1),
+        }
+        if e.raw_args().is_err() {
+            // Ensure recovery is possible
+            assert!(e.raw_args().is_ok());
         }
     }
 

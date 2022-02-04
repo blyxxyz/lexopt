@@ -103,6 +103,8 @@ These are not supported:
 - Single-dash long options (like find's `-name`)
 - Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
+[`Parser::raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.raw_args) offers an escape hatch for consuming the original command line.
+
 ## Unicode
 This library supports unicode while tolerating non-unicode arguments.
 

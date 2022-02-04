@@ -2,14 +2,8 @@
 //! that no more options are parsed after the first positional argument.
 //! The other arguments are then all treated as positional arguments.
 //!
-//! There's a trick to get this behavior from lexopt. After seeing the first
-//! positional argument (`Arg::Value`), repeatedly call `.value()` until it
-//! returns an error. This works correctly because:
-//!
-//! - `Parser::value()` only returns an error when the command line is exhausted.
-//!
-//! - Seeing an `Arg::Value` means that you're not accidentally consuming
-//!   an actual option-argument, like from `--option=value`.
+//! lexopt can be used like this. After seeing the first positional argument
+//! (`Arg::Value`), call `Parser::raw_args`.
 //!
 //! The most logical thing to then do is often to collect the values
 //! into a `Vec`. This is shown below.
@@ -30,7 +24,7 @@ fn main() -> Result<(), lexopt::Error> {
             }
             Value(val) => {
                 free.push(val);
-                free.extend(std::iter::from_fn(|| parser.value().ok()));
+                free.extend(parser.raw_args()?);
             }
             _ => return Err(arg.unexpected()),
         }

@@ -2,6 +2,7 @@
 
 New:
 
+- Add `Parser::raw_args()` for collecting raw unparsed arguments.
 - Implement `Debug` for `ValuesIter`.
 
 ## 0.2.0 (2021-10-23)
