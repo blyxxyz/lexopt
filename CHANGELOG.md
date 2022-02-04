@@ -1,3 +1,9 @@
+## 0.2.1 (unreleased)
+
+New:
+
+- Implement `Debug` for `ValuesIter`.
+
 ## 0.2.0 (2021-10-23)
 
 While this release is not strictly backward-compatible it should break very few programs.

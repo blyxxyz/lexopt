@@ -708,6 +708,7 @@ impl<'a> Arg<'a> {
 }
 
 /// An iterator for multiple option-arguments, returned by [`Parser::values`].
+#[derive(Debug)]
 pub struct ValuesIter<'a> {
     pending: Option<OsString>,
     parser: Option<&'a mut Parser>,
