@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! pico-args implements this program for a number of argument parsers:
 //! https://github.com/RazrFalcon/pico-args/tree/master/test-apps
 //!
