@@ -12,7 +12,7 @@ Lexopt is:
 - Correct: standard conventions are supported and ambiguity is avoided. Tested and fuzzed.
 - Pedantic: arguments are returned as [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html)s, forcing you to convert them explicitly. This lets you handle badly-encoded filenames.
 - Imperative: options are returned as they are found, nothing is declared ahead of time.
-- Annoyingly minimalist: only basic functionality is provided.
+- Minimalist: only basic functionality is provided.
 - Unhelpful: there is no help generation and error messages often lack context.
 
 ## Example
@@ -106,9 +106,9 @@ These are not supported:
 ## Unicode
 This library supports unicode while tolerating non-unicode arguments.
 
-Short options may be unicode, but only a single codepoint. (If you need whole grapheme clusters you can use a long option. If you need normalization you're on your own, but it can be done.)
+Short options may be unicode, but only a single codepoint (a `char`).
 
-Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error or mangle the value. This is surprisingly tricky to support: see [`os_str_bytes`](https://crates.io/crates/os_str_bytes).
+Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error or mangle the value.
 
 Options themselves are patched as by [`String::from_utf8_lossy`](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy) if they're not valid unicode. That typically means you'll raise an error later when they're not recognized.
 
@@ -126,21 +126,11 @@ This library may not be worth using if:
 - You hate boilerplate
 
 ## See also
-- [`clap`](https://github.com/clap-rs/clap)/[`structopt`](https://github.com/TeXitoi/structopt): very fully-featured. The only other argument parser for Rust I know of that truly handles invalid unicode properly, if used right. Large.
-- [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, yet still convenient and powerful enough for most purposes. Panic on invalid unicode.
-  - `argh` adheres to the [Fuchsia specification](https://fuchsia.dev/fuchsia-src/concepts/api/cli#command_line_arguments) and therefore does *not* support `--option=value` and `-ovalue`, only `--option value` and `-o value`.
+- [`clap`](https://github.com/clap-rs/clap): very fully-featured. One of few parsers that handle invalid unicode properly (if used right), along with [`xflags`](https://github.com/matklad/xflags). Large.
+- [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, but still convenient. Panic on invalid unicode.
+  - `argh` does *not* support `--option=value` and `-ovalue`, only `--option value` and `-o value`.
 - [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but [less rigorous](https://old.reddit.com/r/rust/comments/oley2c/lexopt_a_minimalist_pedantic_argument_parser/h5el36b/)).
-- [`ap`](https://docs.rs/ap): I have not used this, but it seems to support iterative parsing while being less bare-bones than lexopt.
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 - Plan 9's [*arg(3)* macros](https://9fans.github.io/plan9port/man/man3/arg.html).
 
-pico-args has a [nifty table](https://github.com/RazrFalcon/pico-args#alternatives) with build times and code sizes for different parsers. I've rerun the tests and added lexopt (using the program in [`examples/pico_test_app.rs`](examples/pico_test_app.rs)):
-
-|                        | null | lexopt  | pico-args   | clap     | gumdrop | structopt | argh    |
-|------------------------|------|---------|-------------|----------|---------|-----------|---------|
-| Binary overhead        | 0KiB | 16.8KiB | **14.7KiB** | 355.1KiB | 18.6KiB | 353.3KiB  | 20.6KiB |
-| Build time             | 1.0s | 1.8s    | **1.6s**    | 11.2s    | 6.7s    | 14.0s     | 7.0s    |
-| Number of dependencies | 0    | **0**   | **0**       | 8        | 4       | 19        | 6       |
-| Tested version         | -    | 0.2.0   | 0.4.2       | 2.33.3   | 0.8.0   | 0.3.25    | 0.1.6   |
-
-(Tests were run on x86_64 Linux with Rust 1.56 and cargo-bloat 0.10.1.)
+For a comparison of build times, code size, and dependency count of various parsers, see [argparse-benchmark-rs](https://github.com/rust-cli/argparse-benchmarks-rs).
