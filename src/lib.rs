@@ -190,6 +190,8 @@ impl Parser {
                 Err(_) => {
                     // Advancing may allow recovery.
                     // This is a little iffy, there might be more bad unicode next.
+                    // The standard library may turn multiple bytes into a single
+                    // replacement character.
                     *pos += 1;
                     self.last_option = LastOption::Short('�');
                     return Ok(Some(Arg::Short('�')));
@@ -465,7 +467,7 @@ impl Parser {
         }
     }
 
-    /// Consume an argument and consume it if it's "normal" (not an option or --).
+    /// Inspect an argument and consume it if it's "normal" (not an option or --).
     ///
     /// Used by [`Parser::values`].
     fn next_normal(&mut self) -> Option<OsString> {
@@ -768,7 +770,8 @@ pub enum Error {
 
     /// A value was found that was not valid unicode.
     ///
-    /// This can be returned by some methods on [`ValueExt`].
+    /// This can be returned by some methods on [`ValueExt`], as well as by
+    /// [`OsString::into_string`] (when the error is converted).
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
