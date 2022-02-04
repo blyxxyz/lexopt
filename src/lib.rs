@@ -532,7 +532,7 @@ impl Parser {
             return Some((value, true));
         }
 
-        if let Some((arg, mut pos)) = self.shorts.take() {
+        if let Some((mut arg, mut pos)) = self.shorts.take() {
             if pos < arg.len() {
                 let mut had_eq_sign = false;
                 if arg[pos] == b'=' {
@@ -542,13 +542,14 @@ impl Parser {
                     pos += 1;
                     had_eq_sign = true;
                 }
+                arg.drain(..pos); // Reuse allocation
                 #[cfg(any(unix, target_os = "wasi"))]
                 {
-                    return Some((OsString::from_vec(arg[pos..].into()), had_eq_sign));
+                    return Some((OsString::from_vec(arg), had_eq_sign));
                 }
                 #[cfg(not(any(unix, target_os = "wasi")))]
                 {
-                    let arg = String::from_utf8(arg[pos..].into())
+                    let arg = String::from_utf8(arg)
                         .expect("short option args on exotic platforms must be unicode");
                     return Some((arg.into(), had_eq_sign));
                 }
