@@ -246,35 +246,33 @@ impl Parser {
         #[cfg(any(unix, target_os = "wasi"))]
         {
             // Fast solution for platforms where OsStrings are just UTF-8-ish bytes
-            let bytes = arg.as_bytes();
-            if bytes.starts_with(b"--") {
+            let mut arg = arg.into_vec();
+            if arg.starts_with(b"--") {
                 // Long options have two forms: --option and --option=value.
-                let option = if let Some(ind) = bytes.iter().position(|&b| b == b'=') {
+                if let Some(ind) = arg.iter().position(|&b| b == b'=') {
                     // The value can be an OsString...
-                    self.long_value = Some(OsString::from_vec(bytes[ind + 1..].into()));
-                    // ...but the option has to be a string.
-                    String::from_utf8_lossy(&bytes[..ind]).into()
-                } else {
-                    // arg.to_string_lossy().into_owned() would work, but its
-                    // return type is Cow: if the original was valid a borrowed
-                    // version is returned, and then into_owned() does an
-                    // unnecessary copy.
-                    // By trying .into_string() first we avoid that copy if arg
-                    // is already UTF-8.
-                    // reqwest does a similar maneuver more efficiently with unsafe:
-                    // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
-
-                    match arg.into_string() {
-                        Ok(text) => text,
-                        Err(arg) => arg.to_string_lossy().into_owned(),
-                    }
+                    self.long_value = Some(OsString::from_vec(arg[ind + 1..].into()));
+                    arg.truncate(ind);
+                }
+                // ...but the option has to be a string.
+                // String::from_utf8_lossy().into_owned() would work, but its
+                // return type is Cow: if the original was valid a borrowed
+                // version is returned, and then into_owned() does an
+                // unnecessary copy.
+                // By trying .into_string() first we avoid that copy if arg
+                // is already UTF-8 (which is most of the time).
+                // reqwest does a similar maneuver more efficiently with unsafe:
+                // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
+                let option = match String::from_utf8(arg) {
+                    Ok(text) => text,
+                    Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
                 };
                 Ok(Some(self.set_long(option)))
-            } else if bytes.len() > 1 && bytes[0] == b'-' {
-                self.shorts = Some((arg.into_vec(), 1));
+            } else if arg.len() > 1 && arg[0] == b'-' {
+                self.shorts = Some((arg, 1));
                 self.next()
             } else {
-                Ok(Some(Arg::Value(arg)))
+                Ok(Some(Arg::Value(OsString::from_vec(arg))))
             }
         }
 
@@ -299,7 +297,7 @@ impl Parser {
                 }
             }
 
-            let arg = match arg.into_string() {
+            let mut arg = match arg.into_string() {
                 Ok(arg) => arg,
                 Err(arg) => {
                     // The argument is not valid unicode.
@@ -313,21 +311,19 @@ impl Parser {
                         // Unlike on Unix, we can't efficiently process invalid unicode.
                         // Semantically it's UTF-16, but internally it's WTF-8 (a superset of UTF-8).
                         // So we only process the raw version here, when we know we really have to.
-                        let arg: Vec<u16> = arg.encode_wide().collect();
+                        let mut arg: Vec<u16> = arg.encode_wide().collect();
                         const DASH: u16 = b'-' as u16;
                         const EQ: u16 = b'=' as u16;
                         if arg.starts_with(&[DASH, DASH]) {
                             if let Some(ind) = arg.iter().position(|&u| u == EQ) {
                                 self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
-                                let long = self.set_long(String::from_utf16_lossy(&arg[..ind]));
-                                return Ok(Some(long));
-                            } else {
-                                let long = self.set_long(String::from_utf16_lossy(&arg));
-                                return Ok(Some(long));
+                                arg.truncate(ind);
                             }
+                            let long = self.set_long(String::from_utf16_lossy(&arg));
+                            return Ok(Some(long));
                         } else {
-                            assert!(arg.starts_with(&[DASH]));
                             assert!(arg.len() > 1);
+                            assert_eq!(arg[0], DASH);
                             self.shorts_utf16 = Some((arg, 1));
                             return self.next();
                         }
@@ -359,13 +355,11 @@ impl Parser {
             // The argument is valid unicode. This is the ideal version of the
             // code, the previous mess was purely to deal with invalid unicode.
             if arg.starts_with("--") {
-                let mut parts = arg.splitn(2, '=');
-                if let (Some(option), Some(value)) = (parts.next(), parts.next()) {
-                    self.long_value = Some(value.into());
-                    Ok(Some(self.set_long(option.into())))
-                } else {
-                    Ok(Some(self.set_long(arg)))
+                if let Some(ind) = arg.find('=') {
+                    self.long_value = Some(arg[ind + 1..].into());
+                    arg.truncate(ind);
                 }
+                Ok(Some(self.set_long(arg)))
             } else if arg.starts_with('-') && arg != "-" {
                 self.shorts = Some((arg.into(), 1));
                 self.next()
