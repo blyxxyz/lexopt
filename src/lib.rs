@@ -74,9 +74,11 @@ use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 #[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
+type BoxedIter = std::iter::Peekable<Box<dyn Iterator<Item = OsString> + 'static>>;
+
 /// A parser for command line arguments.
 pub struct Parser {
-    source: std::iter::Peekable<Box<dyn Iterator<Item = OsString> + 'static>>,
+    source: BoxedIter,
     // The current string of short options being processed
     shorts: Option<(Vec<u8>, usize)>,
     #[cfg(windows)]
@@ -570,7 +572,7 @@ impl Parser {
 
     fn new(bin_name: Option<OsString>, source: impl Iterator<Item = OsString> + 'static) -> Parser {
         Parser {
-            source: box_dyn(source).peekable(),
+            source: box_iter(source),
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -943,9 +945,10 @@ fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
     }
 }
 
-/// Purely for the sake of type inference.
-fn box_dyn(iter: impl Iterator<Item = OsString> + 'static) -> Box<dyn Iterator<Item = OsString>> {
-    Box::new(iter)
+/// Mostly for the sake of type inference.
+fn box_iter(iter: impl Iterator<Item = OsString> + 'static) -> BoxedIter {
+    let boxed: Box<dyn Iterator<Item = OsString>> = Box::new(iter);
+    boxed.peekable()
 }
 
 #[cfg(test)]
@@ -1486,9 +1489,9 @@ mod tests {
     /// iterator is infinite, which seems impolite.
     fn dup_parser(parser: &mut Parser) -> Parser {
         let args: Vec<OsString> = parser.source.by_ref().collect();
-        parser.source = box_dyn(args.clone().into_iter()).peekable();
+        parser.source = box_iter(args.clone().into_iter());
         let new = Parser {
-            source: box_dyn(args.into_iter()).peekable(),
+            source: box_iter(args.into_iter()),
             shorts: parser.shorts.clone(),
             #[cfg(windows)]
             shorts_utf16: parser.shorts_utf16.clone(),
