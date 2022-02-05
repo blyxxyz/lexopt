@@ -5,6 +5,10 @@ New:
 - Add `Parser::raw_args()` for collecting raw unparsed arguments.
 - Implement `Debug` for `ValuesIter`.
 
+Bug fixes:
+
+- Change "missing argument at end of command" error message. ([#11](https://github.com/blyxxyz/lexopt/issues/11))
+
 ## 0.2.0 (2021-10-23)
 
 While this release is not strictly backward-compatible it should break very few programs.

@@ -857,7 +857,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use crate::Error::*;
         match self {
-            MissingValue { option: None } => write!(f, "missing argument at end of command"),
+            MissingValue { option: None } => write!(f, "missing argument"),
             MissingValue {
                 option: Some(option),
             } => {
