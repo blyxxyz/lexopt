@@ -2,7 +2,7 @@
 
 New:
 
-- Add `Parser::raw_args()` for collecting raw unparsed arguments.
+- Add `Parser::raw_args()` for collecting raw unparsed arguments. ([#12](https://github.com/blyxxyz/lexopt/issues/12))
 - Implement `Debug` for `ValuesIter`.
 
 Bug fixes:
@@ -17,12 +17,12 @@ New:
 
 - Add `Parser::values()` for options with multiple arguments.
 - Add `Parser::optional_value()` for options with optional arguments.
-- Add `Parser::from_iter()` to construct from an iterator that includes the binary name.
+- Add `Parser::from_iter()` to construct from an iterator that includes the binary name. ([#5](https://github.com/blyxxyz/lexopt/issues/5))
 - Document how to use `Parser::value()` to collect all remaining arguments.
 
 Changes:
 
-- Support `=` as a separator for short options (as in `-o=value`).
+- Support `=` as a separator for short options (as in `-o=value`). ([#18](https://github.com/blyxxyz/lexopt/issues/18))
 - Sanitize the binary name if it's invalid unicode instead of ignoring it.
 - Make `Error::UnexpectedValue.option` a `String` instead of an `Option<String>`.
 
