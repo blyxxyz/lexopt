@@ -135,4 +135,4 @@ This library may not be worth using if:
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 - Plan 9's [*arg(3)* macros](https://9fans.github.io/plan9port/man/man3/arg.html).
 
-For a comparison of build times, code size, and dependency count of various parsers, see [argparse-benchmark-rs](https://github.com/rust-cli/argparse-benchmarks-rs).
+For a comparison of build times, code size, and dependency count of various parsers, see [argparse-benchmarks-rs](https://github.com/rust-cli/argparse-benchmarks-rs).
