@@ -497,9 +497,11 @@ impl Parser {
     /// # Errors
     ///
     /// Returns an [`Error::UnexpectedValue`] if the last option had a left-over
-    /// argument, as in `--option=value`, `-ovalue`.
+    /// argument, as in `--option=value`, `-ovalue`. After this error the method
+    /// is guaranteed to succeed.
     ///
-    /// After this error the method is guaranteed to succeed.
+    /// To check if the last option had a left-over argument, call
+    /// [`optional_value()`][Parser::optional_value].
     ///
     /// # Example
     /// ```no_run
