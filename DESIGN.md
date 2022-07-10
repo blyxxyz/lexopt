@@ -24,6 +24,45 @@ There's not always enough information for a good error message. A plain `OsStrin
 
 `ValueExt::parse` exists to include the original string in an error message and to wrap all errors inside a uniform type. It's unclear if it earns its upkeep.
 
+# Iterator backing
+I see three ways to store `Parser`'s internal iterator:
+
+1. As a generic field (`Parser<I> where I: Iterator<Item = OsString>`)
+2. As a trait object (`source: Box<dyn Iterator<Item = OsString> + 'static>`)
+3. As a particular known type (`source: std::vec::IntoIter<OsString>`)
+
+I went with option 2 but I suspect option 3 is better. Changing this would technically not be backward compatible.
+
+**Option 1** (generic field) is the most general and powerful but it's cumbersome and bloated. Benefits:
+
+- The parser inherits the iterator's properties. You can have a non-`'static` parser, or a parser that is or isn't thread-safe.
+- You can provide direct access to the original iterator.
+- In theory, better optimization.
+
+Drawbacks:
+
+- Using a parser as an argument (or return value, or field) is difficult. You have to name the whole type (e.g. `Parser<std::env::ArgsOs>`), and you can't mix and match parers created from different iterators.
+- Code size and compile times are bloated, particularly if you use multiple iterator types.
+
+**Option 2** (trait object) doesn't have the drawbacks of option 1, but it reduces everything to a lowest common denominator:
+
+- Either the input must be `Send`/`Sync`, or the parser can't be `Send`/`Sync`. (To complicate things, `ArgsOs` is `!Send` and `!Sync` out of caution.)
+- `Clone` can't be implemented. (Unless you exhaust the original iterator, which requires interior mutability and has bad edge cases.)
+- `Debug` can't be derived.
+
+**Option 3** (known type) would mean collecting the iterator into a `Vec` when the parser is constructed and then turning that into an iterator.
+
+- The biggest benefit is that `vec::IntoIter` is a well-behaved type and everything becomes easy. It's `Sync` and `Send` and `Clone` and `Debug` and `Debug` even shows the raw arguments.
+- We get unlimited lookahead through `vec::IntoIter::as_slice()`.
+- `FromIterator` can be implemented.
+
+There are also drawbacks:
+
+- It's likely to be less efficient. But not disastrously so: `args_os()` allocates a brand-new `Vec` full of brand-new `OsString`s before returning, and we only duplicate the `Vec` allocation.
+- Iterators can't be infinite or otherwise avoid loading all arguments into memory at once.
+- You can't use [clever tricks](https://gist.github.com/blyxxyz/06b45c82c4a4f1030a89e0289adebf09) to observe which argument is being processed.
+  - `as_slice()` might provide an alternative, but if this is to be a proper API it has to be designed carefully.
+
 # Problems in other libraries
 These are all defensible design choices, they're just a bad fit for some of the programs I want to write. All of them make some other kind of program easier to write.
 

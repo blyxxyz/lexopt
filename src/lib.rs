@@ -78,6 +78,11 @@ use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 #[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
+// We don't require Send + Sync because ArgsOs is !Send and !Sync.
+// std only does that out of an abundance of caution. All current platforms
+// use a vec::IntoIter (or rarely slice::Iter) under the hood, which are
+// thread-safe.
+// This design will likely change, see DESIGN.md.
 type BoxedIter = std::iter::Peekable<Box<dyn Iterator<Item = OsString> + 'static>>;
 
 /// A parser for command line arguments.
