@@ -478,11 +478,11 @@ impl Parser {
             return self.source.next();
         }
         #[cfg(any(unix, target_os = "wasi"))]
-        let lead_dash = arg.as_bytes().get(0) == Some(&b'-');
+        let lead_dash = arg.as_bytes().first() == Some(&b'-');
         #[cfg(windows)]
         let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
         #[cfg(not(any(unix, target_os = "wasi", windows)))]
-        let lead_dash = arg.to_string_lossy().as_bytes().get(0) == Some(&b'-');
+        let lead_dash = arg.to_string_lossy().as_bytes().first() == Some(&b'-');
 
         if !lead_dash {
             self.source.next()
