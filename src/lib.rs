@@ -63,7 +63,6 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![allow(clippy::should_implement_trait)]
-#![allow(clippy::map_clone)] // Because of the MSRV (setting MSRV in clippy.toml doesn't help)
 
 use std::{
     ffi::{OsStr, OsString},
@@ -1024,7 +1023,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, u8> {
 #[cfg(windows)]
 /// As before, but for UTF-16.
 fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
-    match std::char::decode_utf16(units.iter().map(|ch| *ch)).next() {
+    match std::char::decode_utf16(units.iter().cloned()).next() {
         Some(Ok(ch)) => Ok(Some(ch)),
         Some(Err(_)) => Err(units[0]),
         None => Ok(None),
