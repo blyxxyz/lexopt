@@ -1,2 +1,6 @@
 /target
 Cargo.lock
+.vscode
+# Personal bookkeeping
+TODO.md
+ISSUES.md
