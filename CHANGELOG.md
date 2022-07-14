@@ -1,3 +1,14 @@
+## 0.3.0 (unreleased)
+
+The input iterator is now consumed when you create a `Parser`, instead of during parsing. This breaks certain clever code that inspects the state of the iterator, but the newly added unlimited lookahead may provide an alternative.
+
+(If you don't know what this means then you don't have to worry.)
+
+New:
+
+- Add `RawArgs::as_slice()` for unlimited lookahead.
+- `Parser` implements `Clone`, `Send`, and `Sync`. Its `Debug` output now shows the remaining arguments.
+
 ## 0.2.1 (2022-07-10)
 
 New:

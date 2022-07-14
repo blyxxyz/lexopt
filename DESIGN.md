@@ -31,7 +31,7 @@ I see three ways to store `Parser`'s internal iterator:
 2. As a trait object (`source: Box<dyn Iterator<Item = OsString> + 'static>`)
 3. As a particular known type (`source: std::vec::IntoIter<OsString>`)
 
-I went with option 2 but I suspect option 3 is better. Changing this would technically not be backward compatible.
+lexopt originally used option 2 but switched to option 3.
 
 **Option 1** (generic field) is the most general and powerful but it's cumbersome and bloated. Benefits:
 

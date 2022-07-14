@@ -77,16 +77,16 @@ use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 #[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
-// We don't require Send + Sync because ArgsOs is !Send and !Sync.
-// std only does that out of an abundance of caution. All current platforms
-// use a vec::IntoIter (or rarely slice::Iter) under the hood, which are
-// thread-safe.
-// This design will likely change, see DESIGN.md.
-type BoxedIter = std::iter::Peekable<Box<dyn Iterator<Item = OsString> + 'static>>;
+type InnerIter = std::vec::IntoIter<OsString>;
+
+fn make_iter(iter: impl Iterator<Item = OsString>) -> InnerIter {
+    iter.collect::<Vec<_>>().into_iter()
+}
 
 /// A parser for command line arguments.
+#[derive(Debug, Clone)]
 pub struct Parser {
-    source: BoxedIter,
+    source: InnerIter,
     // The current string of short options being processed
     shorts: Option<(Vec<u8>, usize)>,
     #[cfg(windows)]
@@ -102,23 +102,6 @@ pub struct Parser {
     finished_opts: bool,
     // The name of the command (argv[0])
     bin_name: Option<String>,
-}
-
-// source may not implement Debug
-impl std::fmt::Debug for Parser {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("Parser");
-        f.field("source", &"<iterator>")
-            .field("shorts", &self.shorts);
-        #[cfg(windows)]
-        f.field("shorts_utf16", &self.shorts_utf16);
-        f.field("long", &self.long)
-            .field("long_value", &self.long_value)
-            .field("last_option", &self.last_option)
-            .field("finished_opts", &self.finished_opts)
-            .field("bin_name", &self.bin_name)
-            .finish()
-    }
 }
 
 /// We use this to keep track of the last emitted option, for error messages when
@@ -469,7 +452,7 @@ impl Parser {
     ///
     /// Used by [`Parser::values`].
     fn next_normal(&mut self) -> Option<OsString> {
-        let arg = self.source.peek()?;
+        let arg = self.source.as_slice().first()?;
         // "-" is the one argument with a leading '-' that's allowed.
         // If we already found a -- then we're really not supposed to be here,
         // but interpreting everything verbatim seems best.
@@ -614,9 +597,9 @@ impl Parser {
         None
     }
 
-    fn new(bin_name: Option<OsString>, source: impl Iterator<Item = OsString> + 'static) -> Parser {
+    fn new(bin_name: Option<OsString>, source: InnerIter) -> Parser {
         Parser {
-            source: box_iter(source),
+            source,
             shorts: None,
             #[cfg(windows)]
             shorts_utf16: None,
@@ -635,7 +618,7 @@ impl Parser {
     ///
     /// This is the usual way to create a `Parser`.
     pub fn from_env() -> Parser {
-        let mut source = std::env::args_os();
+        let mut source = make_iter(std::env::args_os());
         Parser::new(source.next(), source)
     }
 
@@ -643,17 +626,17 @@ impl Parser {
     // This name is used because:
     // - `from_args()` was taken, and changing its behavior without changing
     //   its signature would be evil.
-    // - structopt also has a method by that name, so there's a precedent.
+    // - structopt also had a method by that name, so there's a precedent.
+    //   (clap_derive doesn't.)
     // - I couldn't think of a better one.
-    // Actually implementing `FromIterator` is not (efficiently) possible
-    // because it must support non-static lifetimes.
+    // When this name was chosen `FromIterator` could not actually be implemented.
+    // It can be implemented now, but I'm not sure there's a reason to.
 
     /// Create a parser from an iterator. This is useful for testing among other things.
     ///
     /// The first item from the iterator **must** be the binary name, as from [`std::env::args_os`].
     ///
-    /// The argument needs to have a static lifetime. If your iterator does not have this
-    /// then an easy fix is to collect it into a [`Vec`] first.
+    /// The iterator is consumed immediately.
     ///
     /// # Example
     /// ```
@@ -661,23 +644,25 @@ impl Parser {
     /// ```
     pub fn from_iter<I>(args: I) -> Parser
     where
-        I: IntoIterator + 'static,
+        I: IntoIterator,
         I::Item: Into<OsString>,
     {
-        let mut args = args.into_iter().map(Into::into);
+        let mut args = make_iter(args.into_iter().map(Into::into));
         Parser::new(args.next(), args)
     }
 
     /// Create a parser from an iterator that does **not** include the binary name.
     ///
+    /// The iterator is consumed immediately.
+    ///
     /// [`bin_name()`](`Parser::bin_name`) will return `None`. Consider using
     /// [`Parser::from_iter`] instead.
     pub fn from_args<I>(args: I) -> Parser
     where
-        I: IntoIterator + 'static,
+        I: IntoIterator,
         I::Item: Into<OsString>,
     {
-        Parser::new(None, args.into_iter().map(Into::into))
+        Parser::new(None, make_iter(args.into_iter().map(Into::into)))
     }
 
     /// Store a long option so the caller can borrow it.
@@ -770,7 +755,8 @@ impl Iterator for ValuesIter<'_> {
 }
 
 /// An iterator for the remaining raw arguments, returned by [`Parser::raw_args`].
-pub struct RawArgs<'a>(&'a mut BoxedIter);
+#[derive(Debug)]
+pub struct RawArgs<'a>(&'a mut InnerIter);
 
 impl Iterator for RawArgs<'_> {
     type Item = OsString;
@@ -788,7 +774,7 @@ impl RawArgs<'_> {
     ///
     /// See [`Iterator::peekable`], [`std::iter::Peekable::peek`].
     pub fn peek(&mut self) -> Option<&OsStr> {
-        Some(self.0.peek()?.as_os_str())
+        Some(self.0.as_slice().first()?.as_os_str())
     }
 
     /// Consume and return the next argument if a condition is true.
@@ -800,13 +786,22 @@ impl RawArgs<'_> {
             _ => None,
         }
     }
-}
 
-impl std::fmt::Debug for RawArgs<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("RawArgs")
+    /// Return the remaining arguments as a slice.
+    pub fn as_slice(&self) -> &[OsString] {
+        self.0.as_slice()
     }
 }
+
+// These would make sense:
+// - fn RawArgs::iter(&self)
+// - impl IntoIterator for &RawArgs
+// - impl AsRef<[OsString]> for RawArgs
+// But they're niche and constrain future design.
+// Let's leave them out for now.
+// (Open question: should iter() return std::slice::Iter<OsString> and get
+// an optimized .nth() and so on for free, or should it return a novel type
+// that yields &OsStr?)
 
 /// An error during argument parsing.
 ///
@@ -1028,12 +1023,6 @@ fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
         Some(Err(_)) => Err(units[0]),
         None => Ok(None),
     }
-}
-
-/// Mostly for the sake of type inference.
-fn box_iter(iter: impl Iterator<Item = OsString> + 'static) -> BoxedIter {
-    let boxed: Box<dyn Iterator<Item = OsString>> = Box::new(iter);
-    boxed.peekable()
 }
 
 #[cfg(test)]
@@ -1570,10 +1559,10 @@ mod tests {
             panic!("Stuck in loop");
         }
         let mut a = parser;
-        let mut b = dup_parser(&mut a);
-        let mut c = dup_parser(&mut a);
-        let mut d = dup_parser(&mut a);
-        let mut e = dup_parser(&mut a);
+        let mut b = a.clone();
+        let mut c = a.clone();
+        let mut d = a.clone();
+        let mut e = a.clone();
         match a.next() {
             Ok(None) => (),
             _ => exhaust(a, depth + 1),
@@ -1584,8 +1573,8 @@ mod tests {
         }
         match c.values() {
             Err(_) => (),
-            Ok(mut iter) => {
-                let _: Vec<_> = iter.by_ref().collect();
+            Ok(iter) => {
+                iter.for_each(drop);
                 exhaust(c, depth + 1);
             }
         };
@@ -1597,27 +1586,5 @@ mod tests {
             // Ensure recovery is possible
             assert!(e.raw_args().is_ok());
         }
-    }
-
-    /// Clone a parser.
-    ///
-    /// This is not a Clone impl because the original has to be modified and
-    /// I don't want to add interior mutability. It also runs forever if the
-    /// iterator is infinite, which seems impolite.
-    fn dup_parser(parser: &mut Parser) -> Parser {
-        let args: Vec<OsString> = parser.source.by_ref().collect();
-        parser.source = box_iter(args.clone().into_iter());
-        let new = Parser {
-            source: box_iter(args.into_iter()),
-            shorts: parser.shorts.clone(),
-            #[cfg(windows)]
-            shorts_utf16: parser.shorts_utf16.clone(),
-            long: parser.long.clone(),
-            long_value: parser.long_value.clone(),
-            last_option: parser.last_option,
-            finished_opts: parser.finished_opts,
-            bin_name: parser.bin_name.clone(),
-        };
-        new
     }
 }
