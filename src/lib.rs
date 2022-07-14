@@ -263,7 +263,7 @@ impl Parser {
                 // return type is Cow: if the original was valid a borrowed
                 // version is returned, and then into_owned() does an
                 // unnecessary copy.
-                // By trying .into_string() first we avoid that copy if arg
+                // By trying String::from_utf8 first we avoid that copy if arg
                 // is already UTF-8 (which is most of the time).
                 // reqwest does a similar maneuver more efficiently with unsafe:
                 // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
