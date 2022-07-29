@@ -67,6 +67,7 @@
 use std::{
     ffi::{OsStr, OsString},
     fmt::Display,
+    mem::replace,
     str::FromStr,
 };
 
@@ -87,36 +88,38 @@ fn make_iter(iter: impl Iterator<Item = OsString>) -> InnerIter {
 #[derive(Debug, Clone)]
 pub struct Parser {
     source: InnerIter,
-    // The current string of short options being processed
-    shorts: Option<(Vec<u8>, usize)>,
-    #[cfg(windows)]
-    // The same thing, but encoded as UTF-16
-    shorts_utf16: Option<(Vec<u16>, usize)>,
-    // Temporary storage for a long option so it can be borrowed
-    long: Option<String>,
-    // The pending value for the last long option
-    long_value: Option<OsString>,
-    // The last option we emitted
+    state: State,
+    /// The last option we emitted.
     last_option: LastOption,
-    // Whether we encountered "--" and know no more options are coming
-    finished_opts: bool,
-    // The name of the command (argv[0])
+    /// The name of the command (argv\[0\]).
     bin_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum State {
+    /// Nothing interesting is going on.
+    None,
+    /// We have a value left over from --option=value.
+    PendingValue(OsString),
+    /// We're in the middle of -abc.
+    Shorts(Vec<u8>, usize),
+    #[cfg(windows)]
+    /// We're in the middle of -ab� on Windows (invalid UTF-16).
+    ShortsU16(Vec<u16>, usize),
+    /// We saw -- and know no more options are coming.
+    FinishedOpts,
 }
 
 /// We use this to keep track of the last emitted option, for error messages when
 /// an expected value is not found.
 ///
-/// A long option can be recovered from the `long` field, so that variant doesn't
-/// need to contain data.
-///
-/// Our short option storage is cleared more aggressively, so we do need to
-/// duplicate that.
-#[derive(Debug, PartialEq, Clone, Copy)]
+/// We also use this as storage for long options so we can hand out &str
+/// (because String doesn't support pattern matching).
+#[derive(Debug, Clone)]
 enum LastOption {
     None,
     Short(char),
-    Long,
+    Long(String),
 }
 
 /// A command line argument found by [`Parser`], either an option or a positional argument.
@@ -145,58 +148,30 @@ impl Parser {
     ///
     /// It's possible to continue parsing after an error (but this is rarely useful).
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
-        self.check_state();
-
-        if let Some(value) = self.long_value.take() {
-            // Last time we got `--long=value`, and `value` hasn't been used.
-            return Err(Error::UnexpectedValue {
-                option: self.long.clone().unwrap(),
-                value,
-            });
-        }
-
-        if let Some((ref arg, ref mut pos)) = self.shorts {
-            // We're somewhere inside a -abc chain. Because we're in .next(),
-            // not .value(), we can assume that the next character is another option.
-            match first_codepoint(&arg[*pos..]) {
-                Ok(None) => {
-                    self.shorts = None;
-                }
-                // If we find "-=[...]" we interpret it as an option.
-                // If we find "-o=..." then there's an unexpected value.
-                // ('-=' as an option exists, see https://linux.die.net/man/1/a2ps.)
-                // clap always interprets it as a short flag in this case, but
-                // that feels sloppy.
-                Ok(Some('=')) if *pos > 1 => {
-                    return Err(Error::UnexpectedValue {
-                        option: self.format_last_option().unwrap(),
-                        value: self.optional_value().unwrap(),
-                    });
-                }
-                Ok(Some(ch)) => {
-                    *pos += ch.len_utf8();
-                    self.last_option = LastOption::Short(ch);
-                    return Ok(Some(Arg::Short(ch)));
-                }
-                Err(_) => {
-                    // Advancing may allow recovery.
-                    // This is a little iffy, there might be more bad unicode next.
-                    // The standard library may turn multiple bytes into a single
-                    // replacement character.
-                    *pos += 1;
-                    self.last_option = LastOption::Short('�');
-                    return Ok(Some(Arg::Short('�')));
-                }
+        match self.state {
+            State::PendingValue(ref mut value) => {
+                // Last time we got `--long=value`, and `value` hasn't been used.
+                let value = replace(value, OsString::new());
+                self.state = State::None;
+                return Err(Error::UnexpectedValue {
+                    option: self
+                        .format_last_option()
+                        .expect("Should only have pending value after long option"),
+                    value,
+                });
             }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some((ref arg, ref mut pos)) = self.shorts_utf16 {
-                match first_utf16_codepoint(&arg[*pos..]) {
+            State::Shorts(ref arg, ref mut pos) => {
+                // We're somewhere inside a -abc chain. Because we're in .next(),
+                // not .value(), we can assume that the next character is another option.
+                match first_codepoint(&arg[*pos..]) {
                     Ok(None) => {
-                        self.shorts_utf16 = None;
+                        self.state = State::None;
                     }
+                    // If we find "-=[...]" we interpret it as an option.
+                    // If we find "-o=..." then there's an unexpected value.
+                    // ('-=' as an option exists, see https://linux.die.net/man/1/a2ps.)
+                    // clap always interprets it as a short flag in this case, but
+                    // that feels sloppy.
                     Ok(Some('=')) if *pos > 1 => {
                         return Err(Error::UnexpectedValue {
                             option: self.format_last_option().unwrap(),
@@ -204,17 +179,52 @@ impl Parser {
                         });
                     }
                     Ok(Some(ch)) => {
-                        *pos += ch.len_utf16();
+                        *pos += ch.len_utf8();
                         self.last_option = LastOption::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
                     Err(_) => {
+                        // Advancing may allow recovery.
+                        // This is a little iffy, there might be more bad unicode next.
+                        // The standard library may turn multiple bytes into a single
+                        // replacement character, but we don't imitate that.
                         *pos += 1;
                         self.last_option = LastOption::Short('�');
                         return Ok(Some(Arg::Short('�')));
                     }
                 }
             }
+            #[cfg(windows)]
+            State::ShortsU16(ref arg, ref mut pos) => match first_utf16_codepoint(&arg[*pos..]) {
+                Ok(None) => {
+                    self.state = State::None;
+                }
+                Ok(Some('=')) if *pos > 1 => {
+                    return Err(Error::UnexpectedValue {
+                        option: self.format_last_option().unwrap(),
+                        value: self.optional_value().unwrap(),
+                    });
+                }
+                Ok(Some(ch)) => {
+                    *pos += ch.len_utf16();
+                    self.last_option = LastOption::Short(ch);
+                    return Ok(Some(Arg::Short(ch)));
+                }
+                Err(_) => {
+                    *pos += 1;
+                    self.last_option = LastOption::Short('�');
+                    return Ok(Some(Arg::Short('�')));
+                }
+            },
+            State::FinishedOpts => {
+                return Ok(self.source.next().map(Arg::Value));
+            }
+            State::None => (),
+        }
+
+        match self.state {
+            State::None => (),
+            ref state => panic!("unexpected state {:?}", state),
         }
 
         let arg = match self.source.next() {
@@ -222,11 +232,8 @@ impl Parser {
             None => return Ok(None),
         };
 
-        if self.finished_opts {
-            return Ok(Some(Arg::Value(arg)));
-        }
         if arg == "--" {
-            self.finished_opts = true;
+            self.state = State::FinishedOpts;
             return self.next();
         }
 
@@ -238,7 +245,7 @@ impl Parser {
                 // Long options have two forms: --option and --option=value.
                 if let Some(ind) = arg.iter().position(|&b| b == b'=') {
                     // The value can be an OsString...
-                    self.long_value = Some(OsString::from_vec(arg[ind + 1..].into()));
+                    self.state = State::PendingValue(OsString::from_vec(arg[ind + 1..].into()));
                     arg.truncate(ind);
                 }
                 // ...but the option has to be a string.
@@ -256,7 +263,7 @@ impl Parser {
                 };
                 Ok(Some(self.set_long(option)))
             } else if arg.len() > 1 && arg[0] == b'-' {
-                self.shorts = Some((arg, 1));
+                self.state = State::Shorts(arg, 1);
                 self.next()
             } else {
                 Ok(Some(Arg::Value(OsString::from_vec(arg))))
@@ -303,7 +310,8 @@ impl Parser {
                         const EQ: u16 = b'=' as u16;
                         if arg.starts_with(&[DASH, DASH]) {
                             if let Some(ind) = arg.iter().position(|&u| u == EQ) {
-                                self.long_value = Some(OsString::from_wide(&arg[ind + 1..]));
+                                self.state =
+                                    State::PendingValue(OsString::from_wide(&arg[ind + 1..]));
                                 arg.truncate(ind);
                             }
                             let long = self.set_long(String::from_utf16_lossy(&arg));
@@ -311,7 +319,7 @@ impl Parser {
                         } else {
                             assert!(arg.len() > 1);
                             assert_eq!(arg[0], DASH);
-                            self.shorts_utf16 = Some((arg, 1));
+                            self.state = State::ShortsU16(arg, 1);
                             return self.next();
                         }
                     };
@@ -343,12 +351,12 @@ impl Parser {
             // code, the previous mess was purely to deal with invalid unicode.
             if arg.starts_with("--") {
                 if let Some(ind) = arg.find('=') {
-                    self.long_value = Some(arg[ind + 1..].into());
+                    self.state = State::PendingValue(arg[ind + 1..].into());
                     arg.truncate(ind);
                 }
                 Ok(Some(self.set_long(arg)))
             } else if arg.starts_with('-') && arg != "-" {
-                self.shorts = Some((arg.into(), 1));
+                self.state = State::Shorts(arg.into(), 1);
                 self.next()
             } else {
                 Ok(Some(Arg::Value(arg.into())))
@@ -370,8 +378,6 @@ impl Parser {
     /// An [`Error::MissingValue`] is returned if the end of the command
     /// line is reached.
     pub fn value(&mut self) -> Result<OsString, Error> {
-        self.check_state();
-
         if let Some(value) = self.optional_value() {
             return Ok(value);
         }
@@ -416,8 +422,6 @@ impl Parser {
     /// # Ok(()) }
     /// ```
     pub fn values(&mut self) -> Result<ValuesIter<'_>, Error> {
-        self.check_state();
-
         // I think this is obscure enough to leave out of the docs, but if you
         // call .values() and don't use the iterator you still consume a single
         // value.
@@ -451,12 +455,20 @@ impl Parser {
     /// Inspect an argument and consume it if it's "normal" (not an option or --).
     ///
     /// Used by [`Parser::values`].
+    ///
+    /// This method should not be called while partway through processing an
+    /// argument.
     fn next_normal(&mut self) -> Option<OsString> {
+        match self.state {
+            State::None => (),
+            // If we already found a -- then we're really not supposed to be here,
+            // but interpreting everything verbatim seems best.
+            State::FinishedOpts => return self.source.next(),
+            ref state => panic!("unexpected state {:?}", state),
+        }
         let arg = self.source.as_slice().first()?;
         // "-" is the one argument with a leading '-' that's allowed.
-        // If we already found a -- then we're really not supposed to be here,
-        // but interpreting everything verbatim seems best.
-        if arg == "-" || self.finished_opts {
+        if arg == "-" {
             return self.source.next();
         }
         #[cfg(any(unix, target_os = "wasi"))]
@@ -521,7 +533,7 @@ impl Parser {
         match self.last_option {
             LastOption::None => None,
             LastOption::Short(ch) => Some(format!("-{}", ch)),
-            LastOption::Long => self.long.clone(),
+            LastOption::Long(ref option) => Some(option.clone()),
         }
     }
 
@@ -552,12 +564,12 @@ impl Parser {
     /// [`Parser::optional_value`], but indicate whether the value was joined
     /// with an = sign. This matters for [`Parser::values`].
     fn raw_optional_value(&mut self) -> Option<(OsString, bool)> {
-        if let Some(value) = self.long_value.take() {
-            return Some((value, true));
-        }
-
-        if let Some((mut arg, mut pos)) = self.shorts.take() {
-            if pos < arg.len() {
+        match replace(&mut self.state, State::None) {
+            State::PendingValue(value) => Some((value, true)),
+            State::Shorts(mut arg, mut pos) => {
+                if pos >= arg.len() {
+                    return None;
+                }
                 let mut had_eq_sign = false;
                 if arg[pos] == b'=' {
                     // -o=value.
@@ -569,44 +581,41 @@ impl Parser {
                 arg.drain(..pos); // Reuse allocation
                 #[cfg(any(unix, target_os = "wasi"))]
                 {
-                    return Some((OsString::from_vec(arg), had_eq_sign));
+                    Some((OsString::from_vec(arg), had_eq_sign))
                 }
                 #[cfg(not(any(unix, target_os = "wasi")))]
                 {
                     let arg = String::from_utf8(arg)
                         .expect("short option args on exotic platforms must be unicode");
-                    return Some((arg.into(), had_eq_sign));
+                    Some((arg.into(), had_eq_sign))
                 }
             }
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some((arg, mut pos)) = self.shorts_utf16.take() {
-                if pos < arg.len() {
-                    let mut had_eq_sign = false;
-                    if arg[pos] == b'=' as u16 {
-                        pos += 1;
-                        had_eq_sign = true;
-                    }
-                    return Some((OsString::from_wide(&arg[pos..]), had_eq_sign));
+            #[cfg(windows)]
+            State::ShortsU16(arg, mut pos) => {
+                if pos >= arg.len() {
+                    return None;
                 }
+                let mut had_eq_sign = false;
+                if arg[pos] == b'=' as u16 {
+                    pos += 1;
+                    had_eq_sign = true;
+                }
+                Some((OsString::from_wide(&arg[pos..]), had_eq_sign))
             }
+            State::FinishedOpts => {
+                // Not really supposed to be here, but it's benign and not our fault
+                self.state = State::FinishedOpts;
+                None
+            }
+            State::None => None,
         }
-
-        None
     }
 
     fn new(bin_name: Option<OsString>, source: InnerIter) -> Parser {
         Parser {
             source,
-            shorts: None,
-            #[cfg(windows)]
-            shorts_utf16: None,
-            long: None,
-            long_value: None,
+            state: State::None,
             last_option: LastOption::None,
-            finished_opts: false,
             bin_name: bin_name.map(|s| match s.into_string() {
                 Ok(text) => text,
                 Err(text) => text.to_string_lossy().into_owned(),
@@ -666,58 +675,11 @@ impl Parser {
     }
 
     /// Store a long option so the caller can borrow it.
-    /// We go through this trouble because matching an owned string is a pain.
-    fn set_long(&mut self, value: String) -> Arg {
-        self.last_option = LastOption::Long;
-        // Option::insert would work but it didn't exist in 1.31 (our MSRV)
-        self.long = None;
-        Arg::Long(&self.long.get_or_insert(value)[2..])
-    }
-
-    /// Some basic sanity checks for the internal state.
-    ///
-    /// Particularly nice for fuzzing.
-    fn check_state(&self) {
-        if let Some((ref arg, pos)) = self.shorts {
-            assert!(pos <= arg.len());
-            assert!(arg.len() > 1);
-            if pos > 1 {
-                assert!(self.last_option != LastOption::None);
-                assert!(self.last_option != LastOption::Long);
-            }
-            assert!(self.long_value.is_none());
-        }
-
-        #[cfg(windows)]
-        {
-            if let Some((ref arg, pos)) = self.shorts_utf16 {
-                assert!(pos <= arg.len());
-                assert!(arg.len() > 1);
-                if pos > 1 {
-                    assert!(self.last_option != LastOption::None);
-                    assert!(self.last_option != LastOption::Long);
-                }
-                assert!(self.shorts.is_none());
-                assert!(self.long_value.is_none());
-            }
-        }
-
+    fn set_long(&mut self, option: String) -> Arg {
+        self.last_option = LastOption::Long(option);
         match self.last_option {
-            LastOption::None => {
-                assert!(self.long.is_none());
-                assert!(self.long_value.is_none());
-            }
-            LastOption::Short(_) => {
-                assert!(self.long_value.is_none());
-            }
-            LastOption::Long => {
-                assert!(self.long.is_some());
-            }
-        }
-
-        if self.long_value.is_some() {
-            assert!(self.long.is_some());
-            assert!(self.last_option == LastOption::Long);
+            LastOption::Long(ref option) => Arg::Long(&option[2..]),
+            _ => unreachable!(),
         }
     }
 }
