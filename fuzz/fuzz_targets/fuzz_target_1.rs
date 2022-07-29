@@ -36,15 +36,12 @@ fuzz_target!(|data: &[u8]| {
                 Err(_) => break,
             },
             2 => match p.values() {
-                Ok(iter) => {
-                    let _ = iter.collect::<Vec<_>>();
-                }
+                Ok(iter) => iter.for_each(drop),
                 Err(_) => (),
             },
-            3 => match p.values() {
-                Ok(_) => (),
-                Err(_) => (),
-            },
+            3 => {
+                let _ = p.optional_value();
+            }
             _ => unreachable!(),
         }
         decisions /= 4;
