@@ -30,7 +30,7 @@
 //!                 shout = true;
 //!             }
 //!             Value(val) if thing.is_none() => {
-//!                 thing = Some(val.into_string()?);
+//!                 thing = Some(val.string()?);
 //!             }
 //!             Long("help") => {
 //!                 println!("Usage: hello [-n|--number=NUM] [--shout] THING");
@@ -769,10 +769,6 @@ impl RawArgs<'_> {
 ///
 /// This implements `From<String>` and `From<&str>`, for easy ad-hoc error
 /// messages.
-///
-/// It also implements `From<OsString>`, as that's used as an error type
-/// by [`OsString::into_string`], so that method may be used with the try (`?`)
-/// operator.
 //
 // This is not #[non_exhaustive] because of the MSRV. I'm hoping no more
 // variants will turn out to be needed: this seems reasonable, if the scope
@@ -809,8 +805,7 @@ pub enum Error {
 
     /// A value was found that was not valid unicode.
     ///
-    /// This can be returned by some methods on [`ValueExt`], as well as by
-    /// [`OsString::into_string`] (when the error is converted).
+    /// This can be returned by the methods on [`ValueExt`].
     NonUnicodeValue(OsString),
 
     /// For custom error messages in application code.
@@ -873,7 +868,10 @@ impl<'a> From<&'a str> for Error {
     }
 }
 
-/// For [`OsString::into_string`].
+/// For [`OsString::into_string`], so it may be used with the try (`?`) operator.
+///
+/// [`ValueExt::string`] is the new preferred method because it's compatible with
+/// catch-all error types like `anyhow::Error`.
 impl From<OsString> for Error {
     fn from(arg: OsString) -> Self {
         Error::NonUnicodeValue(arg)
@@ -914,6 +912,14 @@ pub trait ValueExt: private::Sealed {
     //
     // If you have a use for parse_os_with() please open an issue with an
     // example.
+
+    /// Convert the `OsString` into a [`String`] if it's valid Unicode.
+    ///
+    /// This is like [`OsString::into_string`] but returns an
+    /// [`Error::NonUnicodeValue`] on error instead of the original `OsString`.
+    /// This makes it easier to propagate the failure with libraries like
+    /// `anyhow`.
+    fn string(self) -> Result<String, Error>;
 }
 
 impl ValueExt for OsString {
@@ -938,6 +944,13 @@ impl ValueExt for OsString {
                 }),
             },
             None => Err(Error::NonUnicodeValue(self.into())),
+        }
+    }
+
+    fn string(self) -> Result<String, Error> {
+        match self.into_string() {
+            Ok(string) => Ok(string),
+            Err(raw) => Err(Error::NonUnicodeValue(raw)),
         }
     }
 }
@@ -1402,7 +1415,7 @@ mod tests {
             Err(Error::ParsingFailed { value, .. }) => assert_eq!(value, "-10"),
             _ => panic!(),
         }
-        assert_eq!(s.into_string()?, "-10");
+        assert_eq!(s.string()?, "-10");
         Ok(())
     }
 
@@ -1415,10 +1428,7 @@ mod tests {
             s.parse_with(<f32 as FromStr>::from_str),
             Err(Error::NonUnicodeValue(_))
         );
-        assert_matches!(
-            s.into_string().map_err(Error::from),
-            Err(Error::NonUnicodeValue(_))
-        );
+        assert_matches!(s.string(), Err(Error::NonUnicodeValue(_)));
         Ok(())
     }
 

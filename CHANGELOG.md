@@ -6,6 +6,8 @@ The input iterator is now consumed when you create a `Parser`, instead of during
 
 New:
 
+- Add `ValueExt::string()` as the preferred method for converting from `OsString` into `String`. Unlike [`OsString::into_string()`](https://doc.rust-lang.org/std/ffi/struct.OsString.html#method.into_string) it has a normal error type so it's compatible with catch-all error types like [`anyhow::Error`](https://docs.rs/anyhow/latest/anyhow/struct.Error.html).
+  - `into_string()?` will stay supported for the time being. There's no need to change existing code.
 - Add `RawArgs::as_slice()` for unlimited lookahead.
 - `Parser` implements `Clone`, `Send`, and `Sync`. Its `Debug` output now shows the remaining arguments.
 

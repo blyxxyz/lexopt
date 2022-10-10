@@ -7,6 +7,8 @@ Language features are to be preferred over library features as much as possible.
 
 I don't really like the `ValueExt` extension trait, but I can't think of a nicer way to parse values. In my ideal workflow you would call `.into_string()?.parse()?` to parse a value, all built-in methods. But I don't think it's possible to have an error type that can be transformed from both methods' error types, `into_string` returns `OsString` and there are annoying rules around overlapping trait implementations. The error messages would also suffer.
 
+(Update: as of 0.3.0, `ValueExt` has a `string` method as an alternative to `into_string` with a cleaner return type. In theory this opens the way to removing `From<OsString>`, but I don't think `lexopt::Error` should be catch-all. There's `anyhow` for that.)
+
 Keeping the core API clean and generic means this could perhaps be used as the basis of a more complete parser.
 
 # Possible enhancements

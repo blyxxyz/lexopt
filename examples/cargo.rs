@@ -39,7 +39,7 @@ fn main() -> Result<(), lexopt::Error> {
                 std::process::exit(0);
             }
             Value(value) => {
-                let value = value.into_string()?;
+                let value = value.string()?;
                 match value.as_str() {
                     value if value.starts_with('+') => {
                         settings.toolchain = value[1..].to_owned();
@@ -79,7 +79,7 @@ fn install(settings: GlobalSettings, mut parser: lexopt::Parser) -> Result<(), l
     while let Some(arg) = parser.next()? {
         match arg {
             Value(value) if package.is_none() => {
-                package = Some(value.into_string()?);
+                package = Some(value.string()?);
             }
             Long("root") => {
                 root = Some(parser.value()?.into());

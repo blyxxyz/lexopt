@@ -20,7 +20,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 shout = true;
             }
             Value(val) if thing.is_none() => {
-                thing = Some(val.into_string()?);
+                thing = Some(val.string()?);
             }
             Long("help") => {
                 println!("Usage: hello [-n|--number=NUM] [--shout] THING");
