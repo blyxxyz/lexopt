@@ -128,11 +128,6 @@ This library may not be worth using if:
 - You hate boilerplate
 
 ## See also
-- [`clap`](https://github.com/clap-rs/clap): very fully-featured. One of few parsers that handle invalid unicode properly (if used right), along with [`xflags`](https://github.com/matklad/xflags). Large.
-- [`argh`](https://github.com/google/argh) and [`gumdrop`](https://github.com/murarth/gumdrop): much leaner, but still convenient. Panic on invalid unicode.
-  - `argh` does *not* support `--option=value` and `-ovalue`, only `--option value` and `-o value`.
-- [`pico-args`](https://github.com/RazrFalcon/pico-args): slightly smaller than lexopt and easier to use (but [less rigorous](https://old.reddit.com/r/rust/comments/oley2c/lexopt_a_minimalist_pedantic_argument_parser/h5el36b/)).
+- [Collected benchmarks of argument parsing crates](https://github.com/rosetta-rs/argparse-rosetta-rs).
 - libc's [`getopt`](https://en.wikipedia.org/wiki/Getopt#Examples).
 - Plan 9's [*arg(3)* macros](https://9fans.github.io/plan9port/man/man3/arg.html).
-
-For a comparison of build times, code size, and dependency count of various parsers, see [argparse-benchmarks-rs](https://github.com/rust-cli/argparse-benchmarks-rs).
