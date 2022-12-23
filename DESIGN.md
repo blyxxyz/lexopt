@@ -43,6 +43,7 @@ Drawbacks:
 
 - Using a parser as an argument (or return value, or field) is difficult. You have to name the whole type (e.g. `Parser<std::env::ArgsOs>`), and you can't mix and match parers created from different iterators.
 - Code size and compile times are bloated, particularly if you use multiple iterator types.
+- The benefits are pretty weak or niche.
 
 **Option 2** (trait object) doesn't have the drawbacks of option 1, but it reduces everything to a lowest common denominator:
 
@@ -58,7 +59,7 @@ Drawbacks:
 
 There are also drawbacks:
 
-- It's likely to be less efficient. But not disastrously so: `args_os()` allocates a brand-new `Vec` full of brand-new `OsString`s before returning, and we only duplicate the `Vec` allocation.
+- It's likely to be less efficient. But not disastrously so: `args_os()` allocates a brand-new `Vec` full of brand-new `OsString`s (each with their own allocation) before returning, and we only duplicate the `Vec` allocation.
 - Iterators can't be infinite or otherwise avoid loading all arguments into memory at once.
 - You can't use [clever tricks](https://gist.github.com/blyxxyz/06b45c82c4a4f1030a89e0289adebf09) to observe which argument is being processed.
   - `as_slice()` might provide an alternative, but if this is to be a proper API it has to be designed carefully.
@@ -83,7 +84,7 @@ These make the library simpler and smaller, which is the whole point.
 
 That said, it's still my first choice for complicated interfaces.
 
-(I don't know how much of this applies to clap v3 and clap-derive.)
+(I don't know how much of this applies to clap v3+ and clap-derive.)
 
 # Minimum Supported Rust Version
 The current MSRV is 1.31, the first release of the 2018 edition.
@@ -91,3 +92,5 @@ The current MSRV is 1.31, the first release of the 2018 edition.
 The blocker for moving it even earlier is non-lexical lifetimes, there's some code that won't compile without it.
 
 The `Value(arg) if foo.is_none() =>` pattern doesn't actually work until 1.39 ([`bind_by_move_pattern_guards`](https://github.com/rust-lang/rust/pull/63118)), so not all of the examples compile on the MSRV.
+
+Even Debian oldstable packages Rust 1.41 as of writing, so it's okay to relax that if there's a reason to.
