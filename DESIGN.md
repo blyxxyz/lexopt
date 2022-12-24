@@ -64,6 +64,24 @@ There are also drawbacks:
 - You can't use [clever tricks](https://gist.github.com/blyxxyz/06b45c82c4a4f1030a89e0289adebf09) to observe which argument is being processed.
   - `as_slice()` might provide an alternative, but if this is to be a proper API it has to be designed carefully.
 
+# Configuration
+lexopt isn't configurable right now but maybe it should be.
+
+There are requests to **a)** [disable `=` for short options](https://github.com/blyxxyz/lexopt/issues/13) and **b)** [make `.value()` ignore arguments that look like options](https://github.com/blyxxyz/lexopt/issues/14).
+
+Especially b) is context-sensitive. An option might need to take negative numbers as values, or arbitrary filenames. That means you might want to switch the option on/off just for the duration of parsing a single option. That rules out the builder pattern of `cfg(self) -> Self`, but not `cfg(&mut self) -> &mut Self`.
+
+a) might also be context-sensitive if you e.g. want to allow it just for a particular option for backward compatibility. But this seems less likely.
+
+A footgun of `cfg(&mut self)` is that you have to remember to revert the configuration once you're done.
+
+Other possible APIs:
+- `parser.value_disallow_dash()`
+- `parser.value_cfg(Config { allow_dash: false })`
+- `parser.allow_dash(false).value()` (with `allow_dash() -> SomeWrapper`)
+
+I'm not really happy with any of these.
+
 # Problems in other libraries
 These are all defensible design choices, they're just a bad fit for some of the programs I want to write. All of them make some other kind of program easier to write.
 
