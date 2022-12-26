@@ -1489,7 +1489,7 @@ mod tests {
     /// and only does very short sequences. Another is that it's bad at
     /// reporting failure, though the println!() helps.
     ///
-    /// Running with `cargo test --release` makes this a lot faster.
+    /// This test takes a while to run.
     #[test]
     fn basic_fuzz() {
         #[cfg(any(windows, unix, target_os = "wasi"))]

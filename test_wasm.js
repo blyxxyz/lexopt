@@ -6,11 +6,11 @@
 const child_process = require("child_process");
 const fs = require("fs");
 
-const directory = "target/wasm32-unknown-unknown/release/deps";
+const directory = "target/wasm32-unknown-unknown/debug/deps";
 
 child_process.execSync("cargo clean --target wasm32-unknown-unknown");
 child_process.execSync(
-    "cargo +1.31 test --release --lib --target wasm32-unknown-unknown --no-run"
+    "cargo +1.31 test --lib --target wasm32-unknown-unknown --no-run"
 );
 
 let path;
