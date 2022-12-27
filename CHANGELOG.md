@@ -1,15 +1,19 @@
 ## 0.3.0 (unreleased)
 
-The input iterator is now consumed when you create a `Parser`, instead of during parsing. This breaks certain clever code that inspects the state of the iterator, but the newly added unlimited lookahead may provide an alternative.
+This release adds a new preferred way to cast `OsString` into `String` (`.string()?`), makes raw argument processing more flexible, and changes how iterators are consumed.
 
-(If you don't know what this means then you don't have to worry.)
+Almost no programs should need changes to keep working, but `.string()?` makes it easier to use lexopt with [anyhow](https://docs.rs/anyhow).
 
 New:
 
 - Add `ValueExt::string()` as the preferred method for converting from `OsString` into `String`. Unlike [`OsString::into_string()`](https://doc.rust-lang.org/std/ffi/struct.OsString.html#method.into_string) it has a normal error type so it's compatible with catch-all error types like [`anyhow::Error`](https://docs.rs/anyhow/latest/anyhow/struct.Error.html).
-  - `into_string()?` will stay supported for the time being. There's no need to change existing code.
+  - `into_string()?` will stay supported for the time being.
 - Add `RawArgs::as_slice()` for unlimited lookahead.
 - `Parser` implements `Clone`, `Send`, and `Sync`. Its `Debug` output now shows the remaining arguments.
+
+Changes:
+
+- The input iterator is now consumed when you create a `Parser`, instead of during parsing. This breaks certain clever code that inspects the state of the iterator, but `RawArgs::as_slice()` may provide an alternative. (If you don't know what this means then you aren't affected.)
 
 ## 0.2.1 (2022-07-10)
 
