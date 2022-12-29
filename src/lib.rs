@@ -425,33 +425,20 @@ impl Parser {
     /// # Ok(()) }
     /// ```
     pub fn values(&mut self) -> Result<ValuesIter<'_>, Error> {
-        // I think this is obscure enough to leave out of the docs, but if you
-        // call .values() and don't use the iterator you still consume a single
-        // value.
-        if let Some((value, had_eq_sign)) = self.raw_optional_value() {
-            if had_eq_sign {
-                Ok(ValuesIter {
-                    pending: Some(value),
-                    parser: None,
-                })
-            } else {
-                Ok(ValuesIter {
-                    pending: Some(value),
-                    parser: Some(self),
-                })
-            }
+        // This code is designed so that just calling .values() doesn't consume
+        // any arguments as long as you don't use the iterator. It used to work
+        // differently.
+        // "--" is treated like an option and not consumed. This seems to me the
+        // least unreasonable behavior, and it's the easiest to implement.
+        if self.has_pending() || self.next_is_normal() {
+            Ok(ValuesIter {
+                took_first: false,
+                parser: Some(self),
+            })
         } else {
-            // Make sure there's at least one option-argument.
-            if let Some(value) = self.next_normal() {
-                Ok(ValuesIter {
-                    pending: Some(value),
-                    parser: Some(self),
-                })
-            } else {
-                Err(Error::MissingValue {
-                    option: self.format_last_option(),
-                })
-            }
+            Err(Error::MissingValue {
+                option: self.format_last_option(),
+            })
         }
     }
 
@@ -461,18 +448,30 @@ impl Parser {
     ///
     /// This method should not be called while partway through processing an
     /// argument.
-    fn next_normal(&mut self) -> Option<OsString> {
-        match self.state {
-            State::None => (),
-            // If we already found a -- then we're really not supposed to be here,
-            // but interpreting everything verbatim seems best.
-            State::FinishedOpts => return self.source.next(),
-            ref state => panic!("unexpected state {:?}", state),
+    fn next_if_normal(&mut self) -> Option<OsString> {
+        if self.next_is_normal() {
+            self.source.next()
+        } else {
+            None
         }
-        let arg = self.source.as_slice().first()?;
-        // "-" is the one argument with a leading '-' that's allowed.
+    }
+
+    /// Execute the check for next_if_normal().
+    fn next_is_normal(&self) -> bool {
+        assert!(!self.has_pending());
+        let arg = match self.source.as_slice().first() {
+            // There has to be a next argument.
+            None => return false,
+            Some(arg) => arg,
+        };
+        if let State::FinishedOpts = self.state {
+            // If we already found a -- then we're really not supposed to be here,
+            // but we shouldn't treat the next argument as an option.
+            return true;
+        }
         if arg == "-" {
-            return self.source.next();
+            // "-" is the one argument with a leading '-' that's allowed.
+            return true;
         }
         #[cfg(any(unix, target_os = "wasi"))]
         let lead_dash = arg.as_bytes().first() == Some(&b'-');
@@ -481,11 +480,7 @@ impl Parser {
         #[cfg(not(any(unix, target_os = "wasi", windows)))]
         let lead_dash = arg.to_string_lossy().as_bytes().first() == Some(&b'-');
 
-        if !lead_dash {
-            self.source.next()
-        } else {
-            None
-        }
+        !lead_dash
     }
 
     /// Take raw arguments from the original command line.
@@ -731,9 +726,11 @@ impl<'a> Arg<'a> {
 }
 
 /// An iterator for multiple option-arguments, returned by [`Parser::values`].
+///
+/// It's guaranteed to yield at least one value.
 #[derive(Debug)]
 pub struct ValuesIter<'a> {
-    pending: Option<OsString>,
+    took_first: bool,
     parser: Option<&'a mut Parser>,
 }
 
@@ -741,12 +738,21 @@ impl Iterator for ValuesIter<'_> {
     type Item = OsString;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(value) = self.pending.take() {
+        let parser = self.parser.as_mut()?;
+        if self.took_first {
+            parser.next_if_normal()
+        } else if let Some((value, had_eq_sign)) = parser.raw_optional_value() {
+            if had_eq_sign {
+                self.parser = None;
+            }
+            self.took_first = true;
             Some(value)
-        } else if let Some(parser) = &mut self.parser {
-            parser.next_normal()
         } else {
-            None
+            let value = parser
+                .next_if_normal()
+                .expect("ValuesIter must yield at least one value");
+            self.took_first = true;
+            Some(value)
         }
     }
 }
@@ -1379,6 +1385,21 @@ mod tests {
             assert_eq!(values, &[""]);
             assert!(iter.next().is_none());
             assert!(p.next()?.is_none());
+        }
+
+        // Test that .values() does not eagerly consume the first value
+        for &case in &["-a=b", "--a=b", "-a b"] {
+            let mut p = parse(case);
+            p.next()?.unwrap();
+            assert!(p.values().is_ok());
+            assert_eq!(p.value()?, "b");
+        }
+
+        {
+            let mut p = parse("-ab");
+            p.next()?.unwrap();
+            assert!(p.values().is_ok());
+            assert_eq!(p.next()?.unwrap(), Short('b'));
         }
 
         Ok(())
