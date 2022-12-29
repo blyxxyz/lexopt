@@ -491,7 +491,8 @@ impl Parser {
     /// consumed are kept, so you can continue parsing after you're done with
     /// the iterator.
     ///
-    /// To inspect an argument without consuming it, use [`RawArgs::peek`].
+    /// To inspect an argument without consuming it, use [`RawArgs::peek`] or
+    /// [`RawArgs::as_slice`].
     ///
     /// # Errors
     ///
@@ -501,7 +502,8 @@ impl Parser {
     ///
     /// After this error the method is guaranteed to succeed. To check ahead of
     /// time if the last option had a left-over argument, call
-    /// [`optional_value()`][Parser::optional_value].
+    /// [`optional_value()`][Parser::optional_value] or
+    /// [`try_raw_args()`][Parser::try_raw_args].
     ///
     /// # Example
     /// ```no_run
@@ -526,6 +528,36 @@ impl Parser {
         }
 
         Ok(RawArgs(&mut self.source))
+    }
+
+    /// Take raw arguments from the original command line, *if* the current argument
+    /// has finished processing.
+    ///
+    /// Unlike [`raw_args()`][Parser::raw_args] this does not consume any value
+    /// in case of a left-over argument. This makes it safe to call at any time.
+    ///
+    /// It returns `None` exactly when [`optional_value()`][Parser::optional_value]
+    /// would return `Some`.
+    ///
+    /// Note: If no arguments are left then it returns an empty iterator (not `None`).
+    pub fn try_raw_args(&mut self) -> Option<RawArgs<'_>> {
+        if self.has_pending() {
+            None
+        } else {
+            Some(RawArgs(&mut self.source))
+        }
+    }
+
+    /// Check whether we're halfway through an argument, or in other words,
+    /// if [`Parser::optional_value()`] would return `Some`.
+    fn has_pending(&self) -> bool {
+        match self.state {
+            State::None | State::FinishedOpts => false,
+            State::PendingValue(_) => true,
+            State::Shorts(ref arg, pos) => pos < arg.len(),
+            #[cfg(windows)]
+            State::ShortsU16(ref arg, pos) => pos < arg.len(),
+        }
     }
 
     #[inline(never)]
@@ -1352,14 +1384,20 @@ mod tests {
     #[test]
     fn raw_args() -> Result<(), Error> {
         let mut p = parse("-a b c d");
+        assert!(p.try_raw_args().is_some());
         assert_eq!(p.raw_args()?.collect::<Vec<_>>(), &["-a", "b", "c", "d"]);
+        assert!(p.try_raw_args().is_some());
         assert!(p.next()?.is_none());
+        assert!(p.try_raw_args().is_some());
+        assert_eq!(p.raw_args()?.as_slice().len(), 0);
 
         let mut p = parse("-ab c d");
         p.next()?;
+        assert!(p.try_raw_args().is_none());
         assert!(p.raw_args().is_err());
-        assert_eq!(p.raw_args()?.collect::<Vec<_>>(), &["c", "d"]);
+        assert_eq!(p.try_raw_args().unwrap().collect::<Vec<_>>(), &["c", "d"]);
         assert!(p.next()?.is_none());
+        assert_eq!(p.try_raw_args().unwrap().as_slice().len(), 0);
 
         let mut p = parse("-a b c d");
         assert_eq!(p.raw_args()?.take(3).collect::<Vec<_>>(), &["-a", "b", "c"]);
