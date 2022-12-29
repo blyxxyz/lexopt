@@ -36,6 +36,8 @@ jobs:
       - uses: actions/checkout@v2
       - run: rustup toolchain add nightly
       - run: cargo install cargo-fuzz
+      # Two minutes is a very short time to fuzz, but we have a very small state space.
+      # I sometimes fuzz locally for an hour or so.
       - run: cargo +nightly fuzz run fuzz_target_1 -- -max_len=100000 -timeout=1 -max_total_time=120
 
   lint:

@@ -102,6 +102,9 @@ enum State {
     /// We have a value left over from --option=value.
     PendingValue(OsString),
     /// We're in the middle of -abc.
+    ///
+    /// On Windows and other non-UTF8-OsString platforms this Vec should
+    /// only ever contain valid UTF-8 (and could instead be a String).
     Shorts(Vec<u8>, usize),
     #[cfg(windows)]
     /// We're in the middle of -ab� on Windows (invalid UTF-16).
@@ -1043,13 +1046,13 @@ mod tests {
 
     /// Specialized backport of matches!()
     macro_rules! assert_matches {
-        ($expression: expr, $pattern: pat) => {
+        ($expression: expr, $( $pattern: pat )|+) => {
             match $expression {
-                $pattern => true,
+                $( $pattern )|+ => (),
                 _ => panic!(
                     "{:?} does not match {:?}",
                     stringify!($expression),
-                    stringify!($pattern)
+                    stringify!($( $pattern )|+)
                 ),
             }
         };
@@ -1514,10 +1517,8 @@ mod tests {
         }
     }
 
-    /// Very basic exhaustive testing of short combinations of "interesting"
-    /// arguments. Should not panic or hang, anything goes otherwise.
-    ///
-    /// Partially copied from fuzz/fuzz_targets/fuzz_target_1.
+    /// Basic exhaustive testing of short combinations of "interesting"
+    /// arguments. They should not panic, not hang, and pass some checks.
     ///
     /// The advantage compared to full fuzzing is that it runs on all platforms
     /// and together with the other tests. cargo-fuzz doesn't work on Windows
@@ -1532,14 +1533,15 @@ mod tests {
     fn basic_fuzz() {
         #[cfg(any(windows, unix, target_os = "wasi"))]
         const VOCABULARY: &[&str] = &[
-            "", "-", "--", "a", "-a", "-aa", "@", "-@", "-a@", "-@a", "--a", "--@", "--a=a",
-            "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@", "-a=a", "-a=", "-=",
+            "", "-", "--", "---", "a", "-a", "-aa", "@", "-@", "-a@", "-@a", "--a", "--@", "--a=a",
+            "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@", "-a=a", "-a=", "-=", "-a-",
         ];
         #[cfg(not(any(windows, unix, target_os = "wasi")))]
         const VOCABULARY: &[&str] = &[
-            "", "-", "--", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a", "-a=a", "-a=",
-            "-=",
+            "", "-", "--", "---", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a", "-a=a",
+            "-a=", "-=", "-a-",
         ];
+        exhaust(Parser::new(None, Vec::new().into_iter()), 0);
         let vocabulary: Vec<OsString> = VOCABULARY.iter().map(|&s| bad_string(s)).collect();
         let mut permutations = vec![vec![]];
         for _ in 0..3 {
@@ -1554,47 +1556,94 @@ mod tests {
             permutations = new;
             for permutation in &permutations {
                 println!("{:?}", permutation);
-                // Clippy is wrong here, we need to collect for lifetime reasons
-                #[allow(clippy::needless_collect)]
-                let permutation: Vec<OsString> = permutation.iter().map(|&s| s.clone()).collect();
-                let p = Parser::from_args(permutation.into_iter());
+                let p = Parser::from_args(permutation);
                 exhaust(p, 0);
             }
         }
     }
 
     /// Run many sequences of methods on a Parser.
-    fn exhaust(parser: Parser, depth: u16) {
+    fn exhaust(mut parser: Parser, depth: u16) {
         if depth > 100 {
             panic!("Stuck in loop");
         }
-        let mut a = parser;
-        let mut b = a.clone();
-        let mut c = a.clone();
-        let mut d = a.clone();
-        let mut e = a.clone();
-        match a.next() {
-            Ok(None) => (),
-            _ => exhaust(a, depth + 1),
-        }
-        match b.value() {
-            Err(_) => (),
-            _ => exhaust(b, depth + 1),
-        }
-        match c.values() {
-            Err(_) => (),
-            Ok(iter) => {
-                iter.for_each(drop);
-                exhaust(c, depth + 1);
+
+        // has_pending() == optional_value().is_some()
+        if parser.has_pending() {
+            {
+                let mut parser = parser.clone();
+                assert!(parser.try_raw_args().is_none());
+                assert!(parser.try_raw_args().is_none());
+                assert!(parser.raw_args().is_err());
+                // Recovery possible
+                assert!(parser.raw_args().is_ok());
+                assert!(parser.try_raw_args().is_some());
             }
-        };
-        match d.optional_value() {
-            None => (),
-            Some(_) => exhaust(d, depth + 1),
+
+            {
+                let mut parser = parser.clone();
+                assert!(parser.optional_value().is_some());
+                exhaust(parser, depth + 1);
+            }
+        } else {
+            let prev_state = parser.state.clone();
+            let prev_remaining = parser.source.as_slice().len();
+            assert!(parser.optional_value().is_none());
+            assert!(parser.raw_args().is_ok());
+            assert!(parser.try_raw_args().is_some());
+            // Verify state transitions
+            match prev_state {
+                State::None | State::PendingValue(_) => {
+                    assert_matches!(parser.state, State::None);
+                }
+                State::Shorts(arg, pos) => {
+                    assert_eq!(pos, arg.len());
+                    assert_matches!(parser.state, State::None);
+                }
+                #[cfg(windows)]
+                State::ShortsU16(arg, pos) => {
+                    assert_eq!(pos, arg.len());
+                    assert_matches!(parser.state, State::None);
+                }
+                State::FinishedOpts => assert_matches!(parser.state, State::FinishedOpts),
+            }
+            // No arguments were consumed
+            assert_eq!(parser.source.as_slice().len(), prev_remaining);
         }
-        if e.raw_args().is_err() {
-            // Ensure recovery is possible
-            assert!(e.raw_args().is_ok());
+
+        {
+            let mut parser = parser.clone();
+            match parser.next() {
+                Ok(None) => {
+                    assert_matches!(parser.state, State::None | State::FinishedOpts);
+                    assert_eq!(parser.source.as_slice().len(), 0);
+                }
+                _ => exhaust(parser, depth + 1),
+            }
+        }
+
+        {
+            let mut parser = parser.clone();
+            match parser.value() {
+                Err(_) => {
+                    assert_matches!(parser.state, State::None | State::FinishedOpts);
+                    assert_eq!(parser.source.as_slice().len(), 0);
+                }
+                Ok(_) => {
+                    assert_matches!(parser.state, State::None | State::FinishedOpts);
+                    exhaust(parser, depth + 1);
+                }
+            }
+        }
+
+        {
+            match parser.values() {
+                Err(_) => (),
+                Ok(iter) => {
+                    assert!(iter.count() > 0);
+                    exhaust(parser, depth + 1);
+                }
+            }
         }
     }
 }
