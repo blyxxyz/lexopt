@@ -546,7 +546,7 @@ impl Parser {
     /// # Example
     /// Process arguments of the form `-123` as numbers. For a complete runnable version of
     /// this example, see
-    /// [`examples/nonstandard.rs`](https://github.com/blyxxyz/lexopt/blob/master/examples/nonstandard.rs).
+    /// [`examples/nonstandard.rs`](https://github.com/blyxxyz/lexopt/blob/e3754e6f24506afb42394602fc257b1ad9258d84/examples/nonstandard.rs).
     /// ```
     /// # fn main() -> Result<(), lexopt::Error> {
     /// # use lexopt::prelude::*;
