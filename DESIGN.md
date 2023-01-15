@@ -17,9 +17,11 @@ POSIX has a notion of subarguments, combining multiple values in a single option
 # Language quirks
 Sometimes Rust is a bother.
 
-`Arg::Long` contains a borrowed string instead of an owned string because you can't match owned strings against string literals. That means `Arg` needs a lifetime, the iterator protocol cannot be used (it would also be a bad fit for other reasons), and error messages can be slightly better.
+`Arg::Long` contains a borrowed string instead of an owned string because you can't match owned strings against string literals. That means `Arg` needs a lifetime, the iterator protocol cannot be used (it would also be a bad fit for other reasons), and some abstractions are hard or impossible to build. On the plus side, error messages can be slightly better.
 
-Arguments on Windows sometimes have to be transcoded three times: from UTF-16 to WTF-8 by `args_os`, then back to UTF-16 to parse them, then to WTF-8 again to be used. This ensures we see the original invalid code unit if there's a problem, but it's a bit sad.
+(Deref patterns would fix this, and if/when they're released I'll probably do a breaking release with a huge MSRV bump. I consider them a prerequisite for 1.0.)
+
+Arguments on Windows sometimes have to be transcoded three times: from UTF-16 to WTF-8 by `args_os`, then back to UTF-16 to parse them, then to WTF-8 again to be used. This ensures we see the original invalid code unit if there's a problem, but it's a bit sad. (Luckily it only happens very rarely.)
 
 # Errors
 There's not always enough information for a good error message. A plain `OsString` doesn't remember what the parser knows, like what the last option was.
