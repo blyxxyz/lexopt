@@ -776,7 +776,7 @@ impl RawArgs<'_> {
     /// if you resume parsing.
     ///
     /// See [`Iterator::peekable`], [`std::iter::Peekable::peek`].
-    pub fn peek(&mut self) -> Option<&OsStr> {
+    pub fn peek(&self) -> Option<&OsStr> {
         Some(self.0.as_slice().first()?.as_os_str())
     }
 

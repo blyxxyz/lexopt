@@ -16,6 +16,7 @@ Changes:
 
 - The input iterator is now consumed when you create a `Parser`, instead of during parsing. This breaks certain clever code that inspects the state of the iterator, but `RawArgs::as_slice()` may provide an alternative. (If you don't know what this means then you aren't affected.)
 - Calling `Parser::values()` no longer consumes any arguments if you don't use the iterator.
+- `RawArgs::peek()` now takes `&self` instead of `&mut self`.
 
 ## 0.2.1 (2022-07-10)
 
