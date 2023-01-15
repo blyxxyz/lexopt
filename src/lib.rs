@@ -147,7 +147,7 @@ impl Parser {
     /// # Errors
     ///
     /// [`Error::UnexpectedValue`] is returned if the last option had a
-    /// value that hasn't been consumed, as in `--option=value`.
+    /// value that hasn't been consumed, as in `--option=value` or `-o=value`.
     ///
     /// It's possible to continue parsing after an error (but this is rarely useful).
     pub fn next(&mut self) -> Result<Option<Arg<'_>>, Error> {
