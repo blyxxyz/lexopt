@@ -61,7 +61,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+#![warn(missing_docs, missing_debug_implementations, elided_lifetimes_in_paths)]
 #![allow(clippy::should_implement_trait)]
 
 use std::{
@@ -705,7 +705,7 @@ impl Parser {
     }
 
     /// Store a long option so the caller can borrow it.
-    fn set_long(&mut self, option: String) -> Arg {
+    fn set_long(&mut self, option: String) -> Arg<'_> {
         self.last_option = LastOption::Long(option);
         match self.last_option {
             LastOption::Long(ref option) => Arg::Long(&option[2..]),
@@ -714,7 +714,7 @@ impl Parser {
     }
 }
 
-impl<'a> Arg<'a> {
+impl Arg<'_> {
     /// Convert an unexpected argument into an error.
     pub fn unexpected(self) -> Error {
         match self {
