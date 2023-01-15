@@ -59,6 +59,20 @@
 //!     Ok(())
 //! }
 //! ```
+//! Let's walk through this:
+//! - We start parsing with [`Parser::from_env`].
+//! - We call [`parser.next()`][Parser::next] in a loop to get all the arguments until they run out.
+//! - We match on arguments. [`Short`][Arg::Short] and [`Long`][Arg::Long] indicate an option.
+//! - To get the value that belongs to an option (like `10` in `-n 10`) we call [`parser.value()`][Parser::value].
+//!   - This returns a standard [`OsString`][std::ffi::OsString].
+//!   - For convenience, [`use lexopt::prelude::*`][prelude] adds a [`.parse()`][ValueExt::parse] method, analogous to [`str::parse`].
+//!   - Calling `parser.value()` is how we tell `Parser` that `-n` takes a value at all.
+//! - `Value` indicates a free-standing argument.
+//!   - `if thing.is_none()` is a useful pattern for positional arguments. If we already found `thing` we pass it on to another case.
+//!   - It also contains an `OsString`.
+//!     - The [`.string()`][ValueExt::string] method decodes it into a plain `String`.
+//! - If we don't know what to do with an argument we use [`return Err(arg.unexpected())`][Arg::unexpected] to turn it into an error message.
+//! - Strings can be promoted to errors for custom error messages.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs, missing_debug_implementations, elided_lifetimes_in_paths)]
@@ -128,9 +142,9 @@ enum LastOption {
 /// A command line argument found by [`Parser`], either an option or a positional argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Arg<'a> {
-    /// A short option, e.g. `-q`.
+    /// A short option, e.g. `Short('q')` for `-q`.
     Short(char),
-    /// A long option, e.g. `--verbose`. (The dashes are not included.)
+    /// A long option, e.g. `Long("verbose")` for `--verbose`. (The dashes are not included.)
     Long(&'a str),
     /// A positional argument, e.g. `/dev/null`.
     Value(OsString),
