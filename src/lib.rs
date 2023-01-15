@@ -498,15 +498,16 @@ impl Parser {
     /// # Errors
     ///
     /// Returns an [`Error::UnexpectedValue`] if the last option had a left-over
-    /// argument, as in `--option=value`, `-ovalue`. The iterator only yields
-    /// whole arguments.
+    /// argument, as in `--option=value`, `-ovalue`, or if it was midway through
+    /// an option chain, as in `-abc`. The iterator only yields whole arguments.
+    /// To avoid this, use [`try_raw_args()`][Parser::try_raw_args].
     ///
-    /// After this error the method is guaranteed to succeed. To check ahead of
-    /// time if the last option had a left-over argument, call
-    /// [`optional_value()`][Parser::optional_value] or
-    /// [`try_raw_args()`][Parser::try_raw_args].
+    /// After this error the method is guaranteed to succeed, as it consumes the
+    /// rest of the argument.
     ///
     /// # Example
+    /// As soon as a free-standing argument is found, consume the other arguments
+    /// as-is, and build them into a command.
     /// ```
     /// # fn main() -> Result<(), lexopt::Error> {
     /// # use lexopt::prelude::*;
@@ -541,6 +542,39 @@ impl Parser {
     /// would return `Some`.
     ///
     /// Note: If no arguments are left then it returns an empty iterator (not `None`).
+    ///
+    /// # Example
+    /// Process arguments of the form `-123` as numbers. For a complete runnable version of
+    /// this example, see
+    /// [`examples/nonstandard.rs`](https://github.com/blyxxyz/lexopt/blob/master/examples/nonstandard.rs).
+    /// ```
+    /// # fn main() -> Result<(), lexopt::Error> {
+    /// # use lexopt::prelude::*;
+    /// # use std::ffi::OsString;
+    /// # use std::path::PathBuf;
+    /// # let mut parser = lexopt::Parser::from_iter(&["-13"]);
+    /// fn parse_dashnum(parser: &mut lexopt::Parser) -> Option<u64> {
+    ///     let mut raw = parser.try_raw_args()?;
+    ///     let arg = raw.peek()?.to_str()?;
+    ///     let num = arg.strip_prefix('-')?.parse::<u64>().ok()?;
+    ///     raw.next(); // Consume the argument we just parsed
+    ///     Some(num)
+    /// }
+    ///
+    /// loop {
+    ///     if let Some(num) = parse_dashnum(&mut parser) {
+    ///         println!("Got number {}", num);
+    ///     } else if let Some(arg) = parser.next()? {
+    ///         match arg {
+    ///             // ...
+    ///             # _ => (),
+    ///         }
+    ///     } else {
+    ///         break;
+    ///     }
+    /// }
+    /// # Ok(()) }
+    /// ```
     pub fn try_raw_args(&mut self) -> Option<RawArgs<'_>> {
         if self.has_pending() {
             None

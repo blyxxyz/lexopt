@@ -14,9 +14,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
-      - run: rustup toolchain add 1.31 1.39 stable nightly
+      - run: rustup toolchain add 1.31 1.45 stable nightly
       - run: cargo +1.31 test --lib  # MSRV (examples don't compile)
-      - run: cargo +1.39 test        # First version where examples compile
+      - run: cargo +1.45 test        # First version where all examples compile
       - run: cargo +stable test
       - run: cargo +nightly test
 

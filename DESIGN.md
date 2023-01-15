@@ -113,6 +113,6 @@ The current MSRV is 1.31, the first release of the 2018 edition.
 
 The blocker for moving it even earlier is non-lexical lifetimes, there's some code that won't compile without it.
 
-The `Value(arg) if foo.is_none() =>` pattern doesn't actually work until 1.39 ([`bind_by_move_pattern_guards`](https://github.com/rust-lang/rust/pull/63118)), so not all of the examples compile on the MSRV.
+The `Value(arg) if foo.is_none() =>` pattern doesn't actually work until 1.39 ([`bind_by_move_pattern_guards`](https://github.com/rust-lang/rust/pull/63118)), so not all of the examples compile on the MSRV. (And one of them uses `str::strip_prefix`, which requires at least 1.45.)
 
 Even Debian oldstable packages Rust 1.41 as of writing, so it's okay to relax that if there's a reason to.

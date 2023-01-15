@@ -100,11 +100,11 @@ The following conventions are supported:
 - Options with optional arguments (like GNU sed's `-i`, which can be used standalone or as `-iSUFFIX`) ([`Parser::optional_value()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.optional_value))
 - Options with multiple arguments ([`Parser::values()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.values))
 
-These are not supported:
+These are not supported out of the box:
 - Single-dash long options (like find's `-name`)
 - Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
-[`Parser::raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.raw_args) offers an escape hatch for consuming the original command line.
+[`Parser::raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.raw_args) and [`Parser::try_raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.try_raw_args) offer an escape hatch for consuming the original command line. See [`examples/nonstandard.rs`](examples/nonstandard.rs) for an example of parsing non-standard option syntax.
 
 ## Unicode
 This library supports unicode while tolerating non-unicode arguments.
