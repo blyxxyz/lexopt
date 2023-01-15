@@ -411,14 +411,17 @@ impl Parser {
     /// If not at least one value is found then [`Error::MissingValue`] is returned.
     ///
     /// # Example
-    /// ```no_run
+    /// ```
     /// # fn main() -> Result<(), lexopt::Error> {
     /// # use lexopt::prelude::*;
     /// # use std::ffi::OsString;
     /// # use std::path::PathBuf;
-    /// # let mut parser = lexopt::Parser::from_env();
+    /// # let mut parser = lexopt::Parser::from_args(&["a", "b", "-x", "one", "two", "three", "four"]);
     /// let arguments: Vec<OsString> = parser.values()?.collect();
+    /// # assert_eq!(arguments, &["a", "b"]);
+    /// # let _ = parser.next();
     /// let at_most_three_files: Vec<PathBuf> = parser.values()?.take(3).map(Into::into).collect();
+    /// # assert_eq!(parser.raw_args()?.as_slice(), &["four"]);
     /// for value in parser.values()? {
     ///     // ...
     /// }
@@ -504,12 +507,12 @@ impl Parser {
     /// [`try_raw_args()`][Parser::try_raw_args].
     ///
     /// # Example
-    /// ```no_run
+    /// ```
     /// # fn main() -> Result<(), lexopt::Error> {
     /// # use lexopt::prelude::*;
     /// # use std::ffi::OsString;
     /// # use std::path::PathBuf;
-    /// # let mut parser = lexopt::Parser::from_env();
+    /// # let mut parser = lexopt::Parser::from_args(&["-x", "echo", "-n", "'Hello, world'"]);
     /// # while let Some(arg) = parser.next()? {
     /// # match arg {
     /// Value(prog) => {
@@ -1003,10 +1006,12 @@ impl ValueExt for OsString {
 ///
 /// If this is used it's best to import it inside a function, not in module
 /// scope:
-/// ```ignore
+/// ```
+/// # struct Args;
 /// fn parse_args() -> Result<Args, lexopt::Error> {
 ///     use lexopt::prelude::*;
-///     ...
+///     // ...
+///     # Ok(Args)
 /// }
 /// ```
 pub mod prelude {
