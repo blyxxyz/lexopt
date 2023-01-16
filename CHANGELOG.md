@@ -1,4 +1,4 @@
-## 0.3.0 (unreleased)
+## 0.3.0 (2023-01-16)
 
 This release adds a new preferred way to cast `OsString` into `String` (`.string()?`) and makes raw argument processing more flexible.
 
