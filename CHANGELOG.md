@@ -1,16 +1,16 @@
 ## 0.3.0 (unreleased)
 
-This release adds a new preferred way to cast `OsString` into `String` (`.string()?`), makes raw argument processing more flexible, and changes how iterators are consumed.
+This release adds a new preferred way to cast `OsString` into `String` (`.string()?`) and makes raw argument processing more flexible.
 
-Almost no programs should need changes to keep working, but `.string()?` makes it easier to use lexopt with [anyhow](https://docs.rs/anyhow).
+Almost no programs should need changes to keep working, but `.string()?` makes it easier to use lexopt with other error types like [anyhow](https://docs.rs/anyhow)'s and using it is therefore recommended.
 
 New:
 
 - Add `ValueExt::string()` as the preferred method for converting from `OsString` into `String`. Unlike [`OsString::into_string()`](https://doc.rust-lang.org/std/ffi/struct.OsString.html#method.into_string) it has a normal error type so it's compatible with catch-all error types like [`anyhow::Error`](https://docs.rs/anyhow/latest/anyhow/struct.Error.html).
   - `into_string()?` will stay supported for the time being.
 - Add `RawArgs::as_slice()` for unlimited lookahead.
-- Add `Parser::try_raw_args()` to get raw arguments without consuming a value in case of failure.
-- `Parser` implements `Clone`, `Send`, and `Sync`. Its `Debug` output now shows the remaining arguments.
+- Add `Parser::try_raw_args()` to get raw arguments without consuming any arguments in case of failure.
+- `Parser` now implements `Clone`, `Send`, and `Sync`. Its `Debug` output now shows the remaining arguments.
 
 Changes:
 
