@@ -1500,12 +1500,14 @@ mod tests {
         assert_eq!(Parser::from_args(&["foo", "bar", "baz"]).bin_name(), None);
         assert_eq!(Parser::from_iter(&[] as &[&str]).bin_name(), None);
         assert_eq!(Parser::from_iter(&[""]).bin_name(), Some(""));
-        assert!(Parser::from_env().bin_name().is_some());
         #[cfg(any(unix, target_os = "wasi", windows))]
-        assert_eq!(
-            Parser::from_iter(vec![bad_string("foo@bar")]).bin_name(),
-            Some("foo�bar")
-        );
+        {
+            assert!(Parser::from_env().bin_name().is_some());
+            assert_eq!(
+                Parser::from_iter(vec![bad_string("foo@bar")]).bin_name(),
+                Some("foo�bar")
+            );
+        }
     }
 
     #[test]
