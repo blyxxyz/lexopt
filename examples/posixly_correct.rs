@@ -7,6 +7,9 @@
 //!
 //! The most logical thing to then do is often to collect the values
 //! into a `Vec`. This is shown below.
+//!
+//! Note that most modern software doesn't follow POSIX's rule and allows
+//! options anywhere (as long as they come before "--").
 
 fn main() -> Result<(), lexopt::Error> {
     use lexopt::prelude::*;
