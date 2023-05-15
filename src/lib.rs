@@ -992,6 +992,11 @@ pub trait ValueExt: private::Sealed {
     where
         T::Err: Into<Box<dyn std::error::Error + Send + Sync + 'static>>;
 
+    // TODO: move the F parameter to the end for better turbofishing.
+    // This is a breaking change that affects at least one real-world program.
+    // But the code will be better off for it, so it's worth doing in the next
+    // breaking release.
+
     /// Decode the value and parse it using a custom function.
     fn parse_with<F, T, E>(&self, func: F) -> Result<T, Error>
     where
