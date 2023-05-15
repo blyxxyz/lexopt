@@ -1,3 +1,9 @@
+## Unreleased
+
+Changes:
+
+- Tweaked sanitization of invalid UTF-8 in options.
+
 ## 0.3.0 (2023-01-16)
 
 This release adds a new preferred way to cast `OsString` into `String` (`.string()?`) and makes raw argument processing more flexible.

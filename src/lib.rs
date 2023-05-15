@@ -82,7 +82,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt::Display,
     mem::replace,
-    str::FromStr,
+    str::{FromStr, Utf8Error},
 };
 
 #[cfg(unix)]
@@ -200,12 +200,13 @@ impl Parser {
                         self.last_option = LastOption::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
-                    Err(_) => {
+                    Err(err) => {
                         // Advancing may allow recovery.
                         // This is a little iffy, there might be more bad unicode next.
-                        // The standard library may turn multiple bytes into a single
-                        // replacement character, but we don't imitate that.
-                        *pos += 1;
+                        match err.error_len() {
+                            Some(len) => *pos += len,
+                            None => *pos = arg.len(),
+                        }
                         self.last_option = LastOption::Short('�');
                         return Ok(Some(Arg::Short('�')));
                     }
@@ -1072,11 +1073,10 @@ pub mod prelude {
     pub use super::ValueExt;
 }
 
-/// Take the first codepoint of a bytestring. On error, return the first
-/// (and therefore in some way invalid) byte/code unit.
+/// Take the first codepoint from a UTF-8 bytestring.
 ///
 /// The rest of the bytestring does not have to be valid unicode.
-fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, u8> {
+fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Utf8Error> {
     // We only need the first 4 bytes
     let bytes = bytes.get(..4).unwrap_or(bytes);
     let text = match std::str::from_utf8(bytes) {
@@ -1084,7 +1084,7 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, u8> {
         Err(err) if err.valid_up_to() > 0 => {
             std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap()
         }
-        Err(_) => return Err(bytes[0]),
+        Err(err) => return Err(err),
     };
     Ok(text.chars().next())
 }
@@ -1560,8 +1560,57 @@ mod tests {
         assert_eq!(first_codepoint(b"").unwrap(), None);
         assert_eq!(first_codepoint(b"f\xFF\xFF").unwrap(), Some('f'));
         assert_eq!(first_codepoint(b"\xC2\xB5bar").unwrap(), Some('µ'));
-        first_codepoint(b"\xFF").unwrap_err();
         assert_eq!(first_codepoint(b"foo\xC2\xB5").unwrap(), Some('f'));
+        assert_eq!(
+            first_codepoint(b"\xFF\xFF").unwrap_err().error_len(),
+            Some(1)
+        );
+        assert_eq!(first_codepoint(b"\xC2").unwrap_err().error_len(), None);
+        assert_eq!(first_codepoint(b"\xC2a").unwrap_err().error_len(), Some(1));
+        assert_eq!(first_codepoint(b"\xF0").unwrap_err().error_len(), None);
+        assert_eq!(
+            first_codepoint(b"\xF0\x9D\x84").unwrap_err().error_len(),
+            None
+        );
+        assert_eq!(
+            first_codepoint(b"\xF0\x9Da").unwrap_err().error_len(),
+            Some(2)
+        );
+        assert_eq!(
+            first_codepoint(b"\xF0\x9D\x84a").unwrap_err().error_len(),
+            Some(3)
+        );
+        assert_eq!(first_codepoint(b"\xF0\x9D\x84\x9E").unwrap(), Some('𝄞'));
+    }
+
+    #[cfg(any(unix, target_os = "wasi"))]
+    #[test]
+    fn test_lossy_decode() -> Result<(), Error> {
+        fn bparse(s: &[u8]) -> Parser {
+            Parser::from_args(s.split(|&b| b == b' ').map(OsStr::from_bytes))
+        }
+
+        let mut p = bparse(b"-a\xFFc");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('�'));
+        assert_eq!(p.next()?.unwrap(), Short('c'));
+        assert_eq!(p.next()?, None);
+
+        let mut p = bparse(b"-a\xFFc\xFF\xFF");
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?.unwrap(), Short('�'));
+        assert_eq!(p.value()?, OsStr::from_bytes(b"c\xFF\xFF"));
+
+        let mut p = bparse(b"-\xF0\x9Da");
+        assert_eq!(p.next()?.unwrap(), Short('�'));
+        assert_eq!(p.next()?.unwrap(), Short('a'));
+        assert_eq!(p.next()?, None);
+
+        let mut p = bparse(b"-\xF0\x9D");
+        assert_eq!(p.next()?.unwrap(), Short('�'));
+        assert_eq!(p.next()?, None);
+
+        Ok(())
     }
 
     /// Transform @ characters into invalid unicode.
