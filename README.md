@@ -104,7 +104,7 @@ These are not supported out of the box:
 - Single-dash long options (like find's `-name`)
 - Abbreviated long options (GNU's getopt lets you write `--num` instead of `--number` if it can be expanded unambiguously)
 
-[`Parser::raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.raw_args) and [`Parser::try_raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.try_raw_args) offer an escape hatch for consuming the original command line. See [`examples/nonstandard.rs`](examples/nonstandard.rs) for an example of parsing non-standard option syntax.
+[`Parser::raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.raw_args) and [`Parser::try_raw_args()`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.try_raw_args) provide an escape hatch for consuming the original command line. This can be used for custom syntax, like treating `-123` as a number instead of a string of options. See [`examples/nonstandard.rs`](examples/nonstandard.rs) for an example of this.
 
 ## Unicode
 This library supports unicode while tolerating non-unicode arguments.
