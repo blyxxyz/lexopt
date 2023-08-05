@@ -75,7 +75,7 @@ Let's walk through this:
 - We match on arguments. `Short` and `Long` indicate an option.
 - To get the value that belongs to an option (like `10` in `-n 10`) we call `parser.value()`.
   - This returns a standard [`OsString`](https://doc.rust-lang.org/std/ffi/struct.OsString.html).
-  - For convenience, `use lexopt::prelude::*` adds a `.parse()` method, analogous to [`str::parse`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
+    - For convenience, `use lexopt::prelude::*` adds a `.parse()` method, analogous to [the one on `&str`](https://doc.rust-lang.org/std/primitive.str.html#method.parse).
   - Calling `parser.value()` is how we tell `Parser` that `-n` takes a value at all.
 - `Value` indicates a free-standing argument.
   - `if thing.is_none()` is a useful pattern for positional arguments. If we already found `thing` we pass it on to another case.
