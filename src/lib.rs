@@ -352,9 +352,13 @@ impl Parser {
                         let text = arg.to_string_lossy();
                         if text.starts_with('-') {
                             // Use the lossily patched version and hope for the best.
-                            // This may be incorrect behavior. Our only other option
-                            // is an error but I don't want to write complicated code
-                            // I can't actually test.
+                            // This may be incorrect behavior.
+                            // Other options are returning an error or (as of Rust 1.74)
+                            // using the unsafe encoded_bytes API. But neither seem worth
+                            // it in this obscure corner, especially since they'd be hard
+                            // to test.
+                            // (The entire crate will most likely move to the encoded_bytes
+                            // API in the future, once it supports checked conversion.)
                             // Please open an issue if this behavior affects you!
                             text.into_owned()
                         } else {
