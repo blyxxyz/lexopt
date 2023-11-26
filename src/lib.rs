@@ -1105,7 +1105,7 @@ fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
+    use std::error::Error as stdError;
 
     use super::prelude::*;
     use super::*;
