@@ -74,7 +74,6 @@
 //! - If we don't know what to do with an argument we use [`return Err(arg.unexpected())`][Arg::unexpected] to turn it into an error message.
 //! - Strings can be promoted to errors for custom error messages.
 
-#![forbid(unsafe_code)]
 #![warn(missing_docs, missing_debug_implementations, elided_lifetimes_in_paths)]
 #![allow(clippy::should_implement_trait)]
 
@@ -84,13 +83,6 @@ use std::{
     mem::replace,
     str::{FromStr, Utf8Error},
 };
-
-#[cfg(unix)]
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-#[cfg(target_os = "wasi")]
-use std::os::wasi::ffi::{OsStrExt, OsStringExt};
-#[cfg(windows)]
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
 type InnerIter = std::vec::IntoIter<OsString>;
 
@@ -117,12 +109,10 @@ enum State {
     PendingValue(OsString),
     /// We're in the middle of -abc.
     ///
-    /// On Windows and other non-UTF8-OsString platforms this Vec should
-    /// only ever contain valid UTF-8 (and could instead be a String).
+    /// In order to satisfy OsString::from_encoded_bytes_unchecked() we make
+    /// sure that the usize always point to the end of a valid UTF-8 substring.
+    /// This is a safety invariant!
     Shorts(Vec<u8>, usize),
-    #[cfg(windows)]
-    /// We're in the middle of -ab� on Windows (invalid UTF-16).
-    ShortsU16(Vec<u16>, usize),
     /// We saw -- and know no more options are coming.
     FinishedOpts,
 }
@@ -196,44 +186,21 @@ impl Parser {
                         });
                     }
                     Ok(Some(ch)) => {
+                        // SAFETY: pos still points to the end of a valid UTF-8 codepoint.
                         *pos += ch.len_utf8();
                         self.last_option = LastOption::Short(ch);
                         return Ok(Some(Arg::Short(ch)));
                     }
-                    Err(err) => {
-                        // Advancing may allow recovery.
-                        // This is a little iffy, there might be more bad unicode next.
-                        match err.error_len() {
-                            Some(len) => *pos += len,
-                            None => *pos = arg.len(),
-                        }
+                    Err(_) => {
+                        // Skip the rest of the argument. This makes it easy to maintain the
+                        // OsString invariants, and the caller is almost certainly going to
+                        // abort anyway.
+                        self.state = State::None;
                         self.last_option = LastOption::Short('�');
                         return Ok(Some(Arg::Short('�')));
                     }
                 }
             }
-            #[cfg(windows)]
-            State::ShortsU16(ref arg, ref mut pos) => match first_utf16_codepoint(&arg[*pos..]) {
-                Ok(None) => {
-                    self.state = State::None;
-                }
-                Ok(Some('=')) if *pos > 1 => {
-                    return Err(Error::UnexpectedValue {
-                        option: self.format_last_option().unwrap(),
-                        value: self.optional_value().unwrap(),
-                    });
-                }
-                Ok(Some(ch)) => {
-                    *pos += ch.len_utf16();
-                    self.last_option = LastOption::Short(ch);
-                    return Ok(Some(Arg::Short(ch)));
-                }
-                Err(_) => {
-                    *pos += 1;
-                    self.last_option = LastOption::Short('�');
-                    return Ok(Some(Arg::Short('�')));
-                }
-            },
             State::FinishedOpts => {
                 return Ok(self.source.next().map(Arg::Value));
             }
@@ -255,134 +222,50 @@ impl Parser {
             return self.next();
         }
 
-        #[cfg(any(unix, target_os = "wasi"))]
-        {
-            // Fast solution for platforms where OsStrings are just UTF-8-ish bytes
-            let mut arg = arg.into_vec();
-            if arg.starts_with(b"--") {
-                // Long options have two forms: --option and --option=value.
-                if let Some(ind) = arg.iter().position(|&b| b == b'=') {
-                    // The value can be an OsString...
-                    self.state = State::PendingValue(OsString::from_vec(arg[ind + 1..].into()));
-                    arg.truncate(ind);
-                }
-                // ...but the option has to be a string.
-                // String::from_utf8_lossy().into_owned() would work, but its
-                // return type is Cow: if the original was valid a borrowed
-                // version is returned, and then into_owned() does an
-                // unnecessary copy.
-                // By trying String::from_utf8 first we avoid that copy if arg
-                // is already UTF-8 (which is most of the time).
-                // reqwest does a similar maneuver more efficiently with unsafe:
-                // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
-                let option = match String::from_utf8(arg) {
-                    Ok(text) => text,
-                    Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
-                };
-                Ok(Some(self.set_long(option)))
-            } else if arg.len() > 1 && arg[0] == b'-' {
-                self.state = State::Shorts(arg, 1);
-                self.next()
-            } else {
-                Ok(Some(Arg::Value(OsString::from_vec(arg))))
-            }
-        }
+        if arg.as_encoded_bytes().starts_with(b"--") {
+            let mut arg = arg.into_encoded_bytes();
 
-        #[cfg(not(any(unix, target_os = "wasi")))]
-        {
-            // Platforms where looking inside an OsString is harder
+            // Long options have two forms: --option and --option=value.
+            if let Some(ind) = arg.iter().position(|&b| b == b'=') {
+                // The value can be an OsString...
+                let value = arg[ind + 1..].to_vec();
 
-            #[cfg(windows)]
-            {
-                // Fast path for Windows
-                let mut bytes = arg.encode_wide();
-                const DASH: u16 = b'-' as u16;
-                match (bytes.next(), bytes.next()) {
-                    (Some(DASH), Some(_)) => {
-                        // This is an option, we'll have to do more work.
-                        // (We already checked for "--" earlier.)
-                    }
-                    _ => {
-                        // Just a value, return early.
-                        return Ok(Some(Arg::Value(arg)));
-                    }
-                }
+                // SAFETY: this substring comes immediately after a valid UTF-8 sequence
+                // (i.e. the equals sign), and it originates from bytes we obtained from
+                // an OsString just now.
+                let value = unsafe { OsString::from_encoded_bytes_unchecked(value) };
+
+                self.state = State::PendingValue(value);
+                arg.truncate(ind);
             }
 
-            let mut arg = match arg.into_string() {
-                Ok(arg) => arg,
-                Err(arg) => {
-                    // The argument is not valid unicode.
-                    // If it's an option we'll have to do something nasty,
-                    // otherwise we can return it as-is.
+            // ...but the option has to be a string.
 
-                    #[cfg(windows)]
-                    {
-                        // On Windows we can only get here if this is an option, otherwise
-                        // we return earlier.
-                        // Unlike on Unix, we can't efficiently process invalid unicode.
-                        // Semantically it's UTF-16, but internally it's WTF-8 (a superset of UTF-8).
-                        // So we only process the raw version here, when we know we really have to.
-                        let mut arg: Vec<u16> = arg.encode_wide().collect();
-                        const DASH: u16 = b'-' as u16;
-                        const EQ: u16 = b'=' as u16;
-                        if arg.starts_with(&[DASH, DASH]) {
-                            if let Some(ind) = arg.iter().position(|&u| u == EQ) {
-                                self.state =
-                                    State::PendingValue(OsString::from_wide(&arg[ind + 1..]));
-                                arg.truncate(ind);
-                            }
-                            let long = self.set_long(String::from_utf16_lossy(&arg));
-                            return Ok(Some(long));
-                        } else {
-                            assert!(arg.len() > 1);
-                            assert_eq!(arg[0], DASH);
-                            self.state = State::ShortsU16(arg, 1);
-                            return self.next();
-                        }
-                    };
+            // Transform arg back into an OsString so we can use the platform-specific
+            // to_string_lossy() implementation.
+            // (In particular: String::from_utf8_lossy() turns a WTF-8 lone surrogate
+            // into three replacement characters instead of one.)
+            // SAFETY: arg is either an unmodified OsString or one we truncated
+            // right before a valid UTF-8 sequence ("=").
+            let arg = unsafe { OsString::from_encoded_bytes_unchecked(arg) };
 
-                    #[cfg(not(windows))]
-                    {
-                        // This code may be reachable on Hermit and SGX, but probably
-                        // not on wasm32-unknown-unknown, which is unfortunate as that's
-                        // the only one we can easily test.
-
-                        // This allocates unconditionally, sadly.
-                        let text = arg.to_string_lossy();
-                        if text.starts_with('-') {
-                            // Use the lossily patched version and hope for the best.
-                            // This may be incorrect behavior.
-                            // Other options are returning an error or (as of Rust 1.74)
-                            // using the unsafe encoded_bytes API. But neither seem worth
-                            // it in this obscure corner, especially since they'd be hard
-                            // to test.
-                            // (The entire crate will most likely move to the encoded_bytes
-                            // API in the future, once it supports checked conversion.)
-                            // Please open an issue if this behavior affects you!
-                            text.into_owned()
-                        } else {
-                            // It didn't look like an option, so return it as a value.
-                            return Ok(Some(Arg::Value(arg)));
-                        }
-                    }
-                }
+            // Calling arg.to_string_lossy().into_owned() would work, but because
+            // the return type is Cow this would perform an unnecessary copy in
+            // the common case where arg is already UTF-8.
+            // reqwest does a similar maneuver more efficiently with unsafe:
+            // https://github.com/seanmonstar/reqwest/blob/e6a1a09f0904e06de4ff1317278798c4ed28af66/src/async_impl/response.rs#L194
+            let option = match arg.into_string() {
+                Ok(text) => text,
+                Err(arg) => arg.to_string_lossy().into_owned(),
             };
-
-            // The argument is valid unicode. This is the ideal version of the
-            // code, the previous mess was purely to deal with invalid unicode.
-            if arg.starts_with("--") {
-                if let Some(ind) = arg.find('=') {
-                    self.state = State::PendingValue(arg[ind + 1..].into());
-                    arg.truncate(ind);
-                }
-                Ok(Some(self.set_long(arg)))
-            } else if arg.starts_with('-') && arg != "-" {
-                self.state = State::Shorts(arg.into(), 1);
-                self.next()
-            } else {
-                Ok(Some(Arg::Value(arg.into())))
-            }
+            Ok(Some(self.set_long(option)))
+        } else if arg.as_encoded_bytes().len() > 1 && arg.as_encoded_bytes()[0] == b'-' {
+            let arg = arg.into_encoded_bytes();
+            // SAFETY: 1 points at the end of the dash.
+            self.state = State::Shorts(arg, 1);
+            self.next()
+        } else {
+            Ok(Some(Arg::Value(arg)))
         }
     }
 
@@ -495,12 +378,7 @@ impl Parser {
             // "-" is the one argument with a leading '-' that's allowed.
             return true;
         }
-        #[cfg(any(unix, target_os = "wasi"))]
-        let lead_dash = arg.as_bytes().first() == Some(&b'-');
-        #[cfg(windows)]
-        let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
-        #[cfg(not(any(unix, target_os = "wasi", windows)))]
-        let lead_dash = arg.to_string_lossy().as_bytes().first() == Some(&b'-');
+        let lead_dash = arg.as_encoded_bytes().first() == Some(&b'-');
 
         !lead_dash
     }
@@ -609,8 +487,6 @@ impl Parser {
             State::None | State::FinishedOpts => false,
             State::PendingValue(_) => true,
             State::Shorts(ref arg, pos) => pos < arg.len(),
-            #[cfg(windows)]
-            State::ShortsU16(ref arg, pos) => pos < arg.len(),
         }
     }
 
@@ -661,32 +537,16 @@ impl Parser {
                     // -o=value.
                     // clap actually strips out all leading '='s, but that seems silly.
                     // We allow `-xo=value`. Python's argparse doesn't strip the = in that case.
+                    // SAFETY: pos now points to the end of the '='.
                     pos += 1;
                     had_eq_sign = true;
                 }
                 arg.drain(..pos); // Reuse allocation
-                #[cfg(any(unix, target_os = "wasi"))]
-                {
-                    Some((OsString::from_vec(arg), had_eq_sign))
-                }
-                #[cfg(not(any(unix, target_os = "wasi")))]
-                {
-                    let arg = String::from_utf8(arg)
-                        .expect("short option args on exotic platforms must be unicode");
-                    Some((arg.into(), had_eq_sign))
-                }
-            }
-            #[cfg(windows)]
-            State::ShortsU16(arg, mut pos) => {
-                if pos >= arg.len() {
-                    return None;
-                }
-                let mut had_eq_sign = false;
-                if arg[pos] == b'=' as u16 {
-                    pos += 1;
-                    had_eq_sign = true;
-                }
-                Some((OsString::from_wide(&arg[pos..]), had_eq_sign))
+
+                // SAFETY: arg originates from an OsString. We ensure that pos always
+                // points to a valid UTF-8 boundary.
+                let value = unsafe { OsString::from_encoded_bytes_unchecked(arg) };
+                Some((value, had_eq_sign))
             }
             State::FinishedOpts => {
                 // Not really supposed to be here, but it's benign and not our fault
@@ -1081,7 +941,7 @@ pub mod prelude {
 ///
 /// The rest of the bytestring does not have to be valid unicode.
 fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Utf8Error> {
-    // We only need the first 4 bytes
+    // UTF-8 takes at most 4 bytes per codepoint.
     let bytes = bytes.get(..4).unwrap_or(bytes);
     let text = match std::str::from_utf8(bytes) {
         Ok(text) => text,
@@ -1093,19 +953,16 @@ fn first_codepoint(bytes: &[u8]) -> Result<Option<char>, Utf8Error> {
     Ok(text.chars().next())
 }
 
-#[cfg(windows)]
-/// As before, but for UTF-16.
-fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
-    match std::char::decode_utf16(units.iter().cloned()).next() {
-        Some(Ok(ch)) => Ok(Some(ch)),
-        Some(Err(_)) => Err(units[0]),
-        None => Ok(None),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::error::Error as stdError;
+
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStringExt;
+    #[cfg(target_os = "wasi")]
+    use std::os::wasi::ffi::OsStringExt;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStringExt;
 
     use super::prelude::*;
     use super::*;
@@ -1296,8 +1153,6 @@ mod tests {
 
         let mut r = parse("-f@@@");
         assert_eq!(r.next()?.unwrap(), Short('f'));
-        assert_eq!(r.next()?.unwrap(), Short('�'));
-        assert_eq!(r.next()?.unwrap(), Short('�'));
         assert_eq!(r.next()?.unwrap(), Short('�'));
         assert_eq!(r.next()?, None);
 
@@ -1632,36 +1487,6 @@ mod tests {
         assert_eq!(first_codepoint(b"\xF0\x9D\x84\x9E").unwrap(), Some('𝄞'));
     }
 
-    #[cfg(any(unix, target_os = "wasi"))]
-    #[test]
-    fn test_lossy_decode() -> Result<(), Error> {
-        fn bparse(s: &[u8]) -> Parser {
-            Parser::from_args(s.split(|&b| b == b' ').map(OsStr::from_bytes))
-        }
-
-        let mut p = bparse(b"-a\xFFc");
-        assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.next()?.unwrap(), Short('�'));
-        assert_eq!(p.next()?.unwrap(), Short('c'));
-        assert_eq!(p.next()?, None);
-
-        let mut p = bparse(b"-a\xFFc\xFF\xFF");
-        assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.next()?.unwrap(), Short('�'));
-        assert_eq!(p.value()?, OsStr::from_bytes(b"c\xFF\xFF"));
-
-        let mut p = bparse(b"-\xF0\x9Da");
-        assert_eq!(p.next()?.unwrap(), Short('�'));
-        assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.next()?, None);
-
-        let mut p = bparse(b"-\xF0\x9D");
-        assert_eq!(p.next()?.unwrap(), Short('�'));
-        assert_eq!(p.next()?, None);
-
-        Ok(())
-    }
-
     /// Transform @ characters into invalid unicode.
     fn bad_string(text: &str) -> OsString {
         #[cfg(any(unix, target_os = "wasi"))]
@@ -1776,11 +1601,6 @@ mod tests {
                     assert_matches!(parser.state, State::None);
                 }
                 State::Shorts(arg, pos) => {
-                    assert_eq!(pos, arg.len());
-                    assert_matches!(parser.state, State::None);
-                }
-                #[cfg(windows)]
-                State::ShortsU16(arg, pos) => {
                     assert_eq!(pos, arg.len());
                     assert_matches!(parser.state, State::None);
                 }

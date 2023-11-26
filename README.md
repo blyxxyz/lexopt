@@ -113,7 +113,7 @@ Short options may be unicode, but only a single codepoint (a `char`).
 
 Options can be combined with non-unicode arguments. That is, `--option=���` will not cause an error or mangle the value.
 
-Options themselves are patched as by [`String::from_utf8_lossy`](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy) if they're not valid unicode. That typically means you'll raise an error later when they're not recognized.
+Options themselves are patched with replacement characters similar to [`String::from_utf8_lossy`](https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy) if they're not valid unicode. That typically means you'll raise an error later when they're not recognized.
 
 ## Why?
 For a particular application I was looking for a small parser that's pedantically correct. There are other compact argument parsing libraries, but I couldn't find one that handled `OsString`s and implemented all the fiddly details of the argument syntax faithfully.
