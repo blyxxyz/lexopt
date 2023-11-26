@@ -1105,6 +1105,8 @@ fn first_utf16_codepoint(units: &[u16]) -> Result<Option<char>, u16> {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use super::prelude::*;
     use super::*;
 
@@ -1163,13 +1165,10 @@ mod tests {
         assert_eq!(p.next()?.unwrap(), Long("bar"));
         assert_eq!(p.value()?, "qux");
         assert_eq!(p.next()?.unwrap(), Long("foobar"));
-        match p.next().unwrap_err() {
-            Error::UnexpectedValue { option, value } => {
-                assert_eq!(option, "--foobar");
-                assert_eq!(value, "qux=baz");
-            }
-            _ => panic!(),
-        }
+        assert_eq!(
+            p.next().unwrap_err().to_string(),
+            r#"unexpected argument for option '--foobar': "qux=baz""#
+        );
         assert_eq!(p.next()?, None);
         Ok(())
     }
@@ -1211,24 +1210,20 @@ mod tests {
     fn test_missing_value() -> Result<(), Error> {
         let mut p = parse("-o");
         assert_eq!(p.next()?.unwrap(), Short('o'));
-        match p.value() {
-            Err(Error::MissingValue {
-                option: Some(option),
-            }) => assert_eq!(option, "-o"),
-            _ => panic!(),
-        }
+        assert_eq!(
+            p.value().unwrap_err().to_string(),
+            "missing argument for option '-o'",
+        );
 
         let mut q = parse("--out");
         assert_eq!(q.next()?.unwrap(), Long("out"));
-        match q.value() {
-            Err(Error::MissingValue {
-                option: Some(option),
-            }) => assert_eq!(option, "--out"),
-            _ => panic!(),
-        }
+        assert_eq!(
+            q.value().unwrap_err().to_string(),
+            "missing argument for option '--out'",
+        );
 
         let mut r = parse("");
-        assert_matches!(r.value(), Err(Error::MissingValue { option: None }));
+        assert_eq!(r.value().unwrap_err().to_string(), "missing argument");
 
         Ok(())
     }
@@ -1346,13 +1341,10 @@ mod tests {
 
         let mut p = parse("-a=b");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        match p.next().unwrap_err() {
-            Error::UnexpectedValue { option, value } => {
-                assert_eq!(option, "-a");
-                assert_eq!(value, "b");
-            }
-            _ => panic!(),
-        }
+        assert_eq!(
+            p.next().unwrap_err().to_string(),
+            r#"unexpected argument for option '-a': "b""#
+        );
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-a=");
@@ -1362,13 +1354,10 @@ mod tests {
 
         let mut p = parse("-a=");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        match p.next().unwrap_err() {
-            Error::UnexpectedValue { option, value } => {
-                assert_eq!(option, "-a");
-                assert_eq!(value, "");
-            }
-            _ => panic!(),
-        }
+        assert_eq!(
+            p.next().unwrap_err().to_string(),
+            r#"unexpected argument for option '-a': """#
+        );
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-=");
@@ -1392,13 +1381,16 @@ mod tests {
 
         let mut p = parse("-a=@");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        match p.next().unwrap_err() {
-            Error::UnexpectedValue { option, value } => {
-                assert_eq!(option, "-a");
-                assert_eq!(value, bad_string("@"));
-            }
-            _ => panic!(),
-        }
+        #[cfg(any(unix, target_os = "wasi"))]
+        assert_eq!(
+            p.next().unwrap_err().to_string(),
+            r#"unexpected argument for option '-a': "\xFF""#
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            dbg!(p.next().unwrap_err().to_string()),
+            r#"unexpected argument for option '-a': "\u{d800}""#
+        );
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-=@");
@@ -1494,7 +1486,13 @@ mod tests {
         let mut it = p.raw_args()?;
         assert_eq!(it.peek(), Some("a".as_ref()));
         assert_eq!(it.next_if(|_| false), None);
-        assert_eq!(p.next()?, Some(Value("a".into())));
+        assert_eq!(
+            it.next_if(|arg| {
+                assert_eq!(arg, "a");
+                true
+            }),
+            Some("a".into())
+        );
         assert!(p.next()?.is_none());
 
         Ok(())
@@ -1530,17 +1528,19 @@ mod tests {
             })?,
             0,
         );
-        match s.parse::<u32>() {
-            Err(Error::ParsingFailed { value, .. }) => assert_eq!(value, "-10"),
-            _ => panic!(),
-        }
-        match s.parse_with(|s| match s {
-            "11" => Ok(0_i32),
-            _ => Err("bad"),
-        }) {
-            Err(Error::ParsingFailed { value, .. }) => assert_eq!(value, "-10"),
-            _ => panic!(),
-        }
+        assert_eq!(
+            s.parse::<u32>().unwrap_err().to_string(),
+            r#"cannot parse argument "-10": invalid digit found in string"#,
+        );
+        assert_eq!(
+            s.parse_with(|s| match s {
+                "11" => Ok(0_i32),
+                _ => Err("bad"),
+            })
+            .unwrap_err()
+            .to_string(),
+            r#"cannot parse argument "-10": bad"#,
+        );
         assert_eq!(s.string()?, "-10");
         Ok(())
     }
@@ -1549,13 +1549,58 @@ mod tests {
     #[test]
     fn test_value_ext_invalid() -> Result<(), Error> {
         let s = bad_string("foo@");
-        assert_matches!(s.parse::<i32>(), Err(Error::NonUnicodeValue(_)));
-        assert_matches!(
-            s.parse_with(<f32 as FromStr>::from_str),
-            Err(Error::NonUnicodeValue(_))
+        #[cfg(any(unix, target_os = "wasi"))]
+        let message = r#"argument is invalid unicode: "foo\xFF""#;
+        #[cfg(windows)]
+        let message = r#"argument is invalid unicode: "foo\u{d800}""#;
+        assert_eq!(s.parse::<i32>().unwrap_err().to_string(), message);
+        assert_eq!(
+            s.parse_with(<f32 as FromStr>::from_str)
+                .unwrap_err()
+                .to_string(),
+            message,
         );
-        assert_matches!(s.string(), Err(Error::NonUnicodeValue(_)));
+        assert_eq!(s.clone().string().unwrap_err().to_string(), message);
+        assert_eq!(
+            Error::from(s.into_string().unwrap_err()).to_string(),
+            message,
+        );
         Ok(())
+    }
+
+    #[test]
+    fn test_errors() {
+        assert_eq!(
+            Arg::Short('o').unexpected().to_string(),
+            "invalid option '-o'",
+        );
+        assert_eq!(
+            Arg::Long("opt").unexpected().to_string(),
+            "invalid option '--opt'",
+        );
+        assert_eq!(
+            Arg::Value("foo".into()).unexpected().to_string(),
+            r#"unexpected argument "foo""#,
+        );
+        assert_eq!(
+            Error::from("this is an error message").to_string(),
+            "this is an error message",
+        );
+        assert_eq!(
+            Error::from("this is an error message".to_owned()).to_string(),
+            "this is an error message",
+        );
+        assert!(Error::from("this is an error message").source().is_some());
+        assert!(OsString::from("foo")
+            .parse::<i32>()
+            .unwrap_err()
+            .source()
+            .is_some());
+        assert!(Arg::Short('o').unexpected().source().is_none());
+        assert_eq!(
+            format!("{:?}", Arg::Short('o').unexpected()),
+            "invalid option '-o'",
+        );
     }
 
     #[test]
