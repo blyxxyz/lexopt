@@ -1388,7 +1388,7 @@ mod tests {
         );
         #[cfg(windows)]
         assert_eq!(
-            dbg!(p.next().unwrap_err().to_string()),
+            p.next().unwrap_err().to_string(),
             r#"unexpected argument for option '-a': "\u{d800}""#
         );
         assert_eq!(p.next()?, None);
