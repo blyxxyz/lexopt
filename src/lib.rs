@@ -87,8 +87,6 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-#[cfg(target_os = "wasi")]
-use std::os::wasi::ffi::{OsStrExt, OsStringExt};
 #[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
@@ -255,7 +253,7 @@ impl Parser {
             return self.next();
         }
 
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(unix)]
         {
             // Fast solution for platforms where OsStrings are just UTF-8-ish bytes
             let mut arg = arg.into_vec();
@@ -288,7 +286,7 @@ impl Parser {
             }
         }
 
-        #[cfg(not(any(unix, target_os = "wasi")))]
+        #[cfg(not(unix))]
         {
             // Platforms where looking inside an OsString is harder
 
@@ -344,9 +342,14 @@ impl Parser {
 
                     #[cfg(not(windows))]
                     {
-                        // This code may be reachable on Hermit and SGX, but probably
-                        // not on wasm32-unknown-unknown, which is unfortunate as that's
-                        // the only one we can easily test.
+                        // Other platforms.
+
+                        // Most of them have their own `OsStrExt` but that doesn't mean
+                        // they actually have invalid strings. WASI for example exports
+                        // the Unix extension trait even though only UTF-8 OS strings
+                        // are allowed.
+                        // So on WASI this code path is only reachable by creating custom
+                        // faulty OS strings, not by processing true environment args.
 
                         // This allocates unconditionally, sadly.
                         let text = arg.to_string_lossy();
@@ -497,11 +500,11 @@ impl Parser {
             // "-" is the one argument with a leading '-' that's allowed.
             return true;
         }
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(unix)]
         let lead_dash = arg.as_bytes().first() == Some(&b'-');
         #[cfg(windows)]
         let lead_dash = arg.encode_wide().next() == Some(b'-' as u16);
-        #[cfg(not(any(unix, target_os = "wasi", windows)))]
+        #[cfg(not(any(unix, windows)))]
         let lead_dash = arg.to_string_lossy().as_bytes().first() == Some(&b'-');
 
         !lead_dash
@@ -668,11 +671,11 @@ impl Parser {
                     had_eq_sign = true;
                 }
                 arg.drain(..pos); // Reuse allocation
-                #[cfg(any(unix, target_os = "wasi"))]
+                #[cfg(unix)]
                 {
                     Some((OsString::from_vec(arg), had_eq_sign))
                 }
-                #[cfg(not(any(unix, target_os = "wasi")))]
+                #[cfg(not(unix))]
                 {
                     let arg = String::from_utf8(arg)
                         .expect("short option args on exotic platforms must be unicode");
@@ -1113,6 +1116,13 @@ mod tests {
     use super::prelude::*;
     use super::*;
 
+    // On wasm32-wasip1 invalid OS strings can't come from the OS but
+    // can be constructed by Rust code.
+    // We abuse that to test some hard-to-reach codepaths.
+    // On wasm32-wasip2 this trait is currently unstable.
+    #[cfg(all(target_os = "wasi", target_env = "p1"))]
+    use std::os::wasi::ffi::OsStringExt;
+
     fn parse(args: &'static str) -> Parser {
         Parser::from_args(args.split_whitespace().map(bad_string))
     }
@@ -1259,11 +1269,11 @@ mod tests {
         assert_eq!(p.next()?.unwrap(), Value(OsString::from("-x")));
         assert_eq!(p.next()?, None);
 
-        #[cfg(any(unix, target_os = "wasi", windows))]
+        #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
         {
             let mut q = parse("--=@");
             assert_eq!(q.next()?.unwrap(), Long(""));
-            assert_eq!(q.value()?, bad_string("@"));
+            assert_eq!(q.value()?, bad_output_string("@"));
             assert_eq!(q.next()?, None);
         }
 
@@ -1286,16 +1296,16 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
     #[test]
     fn test_mixed_invalid() -> Result<(), Error> {
         let mut p = parse("--foo=@@@");
         assert_eq!(p.next()?.unwrap(), Long("foo"));
-        assert_eq!(p.value()?, bad_string("@@@"));
+        assert_eq!(p.value()?, bad_output_string("@@@"));
 
         let mut q = parse("-💣@@@");
         assert_eq!(q.next()?.unwrap(), Short('💣'));
-        assert_eq!(q.value()?, bad_string("@@@"));
+        assert_eq!(q.value()?, bad_output_string("@@@"));
 
         let mut r = parse("-f@@@");
         assert_eq!(r.next()?.unwrap(), Short('f'));
@@ -1306,12 +1316,12 @@ mod tests {
 
         let mut s = parse("--foo=bar=@@@");
         assert_eq!(s.next()?.unwrap(), Long("foo"));
-        assert_eq!(s.value()?, bad_string("bar=@@@"));
+        assert_eq!(s.value()?, bad_output_string("bar=@@@"));
 
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
     #[test]
     fn test_separate_invalid() -> Result<(), Error> {
         let mut p = parse("--foo @@@");
@@ -1320,7 +1330,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
     #[test]
     fn test_invalid_long_option() -> Result<(), Error> {
         let mut p = parse("--@=10");
@@ -1374,17 +1384,17 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
     #[test]
     fn short_opt_equals_sign_invalid() -> Result<(), Error> {
         let mut p = parse("-a=@");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        assert_eq!(p.value()?, bad_string("@"));
+        assert_eq!(p.value()?, bad_output_string("@"));
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-a=@");
         assert_eq!(p.next()?.unwrap(), Short('a'));
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(unix)]
         assert_eq!(
             p.next().unwrap_err().to_string(),
             r#"unexpected argument for option '-a': "\xFF""#
@@ -1394,11 +1404,16 @@ mod tests {
             p.next().unwrap_err().to_string(),
             r#"unexpected argument for option '-a': "\u{d800}""#
         );
+        #[cfg(all(target_os = "wasi", target_env = "p1"))]
+        assert_eq!(
+            dbg!(p.next().unwrap_err().to_string()),
+            r#"unexpected argument for option '-a': "�""#
+        );
         assert_eq!(p.next()?, None);
 
         let mut p = parse("-=@");
         assert_eq!(p.next()?.unwrap(), Short('='));
-        assert_eq!(p.value()?, bad_string("@"));
+        assert_eq!(p.value()?, bad_output_string("@"));
 
         Ok(())
     }
@@ -1510,7 +1525,7 @@ mod tests {
         assert_eq!(Parser::from_args(&["foo", "bar", "baz"]).bin_name(), None);
         assert_eq!(Parser::from_iter(&[] as &[&str]).bin_name(), None);
         assert_eq!(Parser::from_iter(&[""]).bin_name(), Some(""));
-        #[cfg(any(unix, target_os = "wasi", windows))]
+        #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
         {
             assert!(Parser::from_env().bin_name().is_some());
             assert_eq!(
@@ -1548,14 +1563,16 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(any(unix, target_os = "wasi", windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
     #[test]
     fn test_value_ext_invalid() -> Result<(), Error> {
         let s = bad_string("foo@");
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(unix)]
         let message = r#"argument is invalid unicode: "foo\xFF""#;
         #[cfg(windows)]
         let message = r#"argument is invalid unicode: "foo\u{d800}""#;
+        #[cfg(all(target_os = "wasi", target_env = "p1"))]
+        let message = r#"argument is invalid unicode: "foo\xFF""#;
         assert_eq!(s.parse::<i32>().unwrap_err().to_string(), message);
         assert_eq!(
             s.parse_with(<f32 as FromStr>::from_str)
@@ -1635,7 +1652,7 @@ mod tests {
         assert_eq!(first_codepoint(b"\xF0\x9D\x84\x9E").unwrap(), Some('𝄞'));
     }
 
-    #[cfg(any(unix, target_os = "wasi"))]
+    #[cfg(unix)]
     #[test]
     fn test_lossy_decode() -> Result<(), Error> {
         fn bparse(s: &[u8]) -> Parser {
@@ -1667,7 +1684,7 @@ mod tests {
 
     /// Transform @ characters into invalid unicode.
     fn bad_string(text: &str) -> OsString {
-        #[cfg(any(unix, target_os = "wasi"))]
+        #[cfg(any(unix, all(target_os = "wasi", target_env = "p1")))]
         {
             let mut text = text.as_bytes().to_vec();
             for ch in &mut text {
@@ -1690,13 +1707,26 @@ mod tests {
             }
             OsString::from_wide(&out)
         }
-        #[cfg(not(any(unix, target_os = "wasi", windows)))]
+        #[cfg(not(any(unix, windows, all(target_os = "wasi", target_env = "p1"))))]
         {
             if text.contains('@') {
                 unimplemented!("Don't know how to create invalid OsStrings on this platform");
             }
             text.into()
         }
+    }
+
+    /// [`bad_string`] for text that has been processed.
+    ///
+    /// On wasip1 we test invalid OS strings but the crate doesn't preserve them.
+    ///
+    /// On other targets this is identical to `bad_string`.
+    #[allow(unused)]
+    fn bad_output_string(text: &str) -> OsString {
+        #[cfg(all(target_os = "wasi", target_env = "p1"))]
+        return text.replace("@", "�").into();
+        #[cfg(not(all(target_os = "wasi", target_env = "p1")))]
+        return bad_string(text);
     }
 
     /// Basic exhaustive testing of short combinations of "interesting"
@@ -1713,12 +1743,12 @@ mod tests {
     /// This test takes a while to run.
     #[test]
     fn basic_fuzz() {
-        #[cfg(any(windows, unix, target_os = "wasi"))]
+        #[cfg(any(windows, unix, all(target_os = "wasi", target_env = "p1")))]
         const VOCABULARY: &[&str] = &[
             "", "-", "--", "---", "a", "-a", "-aa", "@", "-@", "-a@", "-@a", "--a", "--@", "--a=a",
             "--a=", "--a=@", "--@=a", "--=", "--=@", "--=a", "-@@", "-a=a", "-a=", "-=", "-a-",
         ];
-        #[cfg(not(any(windows, unix, target_os = "wasi")))]
+        #[cfg(not(any(windows, unix, all(target_os = "wasi", target_env = "p1"))))]
         const VOCABULARY: &[&str] = &[
             "", "-", "--", "---", "a", "-a", "-aa", "--a", "--a=a", "--a=", "--=", "--=a", "-a=a",
             "-a=", "-=", "-a-",

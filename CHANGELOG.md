@@ -1,8 +1,13 @@
 ## Unreleased
 
+New:
+
+- Support the `wasm32-wasip2` target.
+
 Changes:
 
 - Tweaked sanitization of invalid UTF-8 in options.
+- Removed special handling for WASI since WASI is de facto Unicode-only.
 
 ## 0.3.0 (2023-01-16)
 
