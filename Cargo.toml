@@ -10,7 +10,7 @@ documentation = "https://docs.rs/lexopt"
 license = "MIT"
 readme = "README.md"
 edition = "2018"
-exclude = ["test_wasm.js", ".github", ".gitignore"]
+exclude = [".github", ".gitignore"]
 
 [profile.test]
 # The basic_fuzz test benefits greatly from this.
