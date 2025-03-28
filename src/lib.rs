@@ -64,7 +64,7 @@
 //! - We call [`parser.next()`][Parser::next] in a loop to get all the arguments until they run out.
 //! - We match on arguments. [`Short`][Arg::Short] and [`Long`][Arg::Long] indicate an option.
 //! - To get the value that belongs to an option (like `10` in `-n 10`) we call [`parser.value()`][Parser::value].
-//!   - This returns a standard [`OsString`][std::ffi::OsString].
+//!   - This returns a standard [`OsString`].
 //!   - For convenience, [`use lexopt::prelude::*`][prelude] adds a [`.parse()`][ValueExt::parse] method, analogous to [`str::parse`].
 //!   - Calling `parser.value()` is how we tell `Parser` that `-n` takes a value at all.
 //! - `Value` indicates a free-standing argument.
@@ -422,6 +422,8 @@ impl Parser {
     /// the end of the command line is reached. This differs from `.value()`, which
     /// takes a value even if it looks like an option.
     ///
+    /// On success the resulting iterator will yield at least one value.
+    ///
     /// An equals sign (`=`) will limit this to a single value. That means `-a=b c` and
     /// `--opt=b c` will only yield `"b"` while `-a b c`, `-ab c` and `--opt b c` will
     /// yield `"b"`, `"c"`.
@@ -540,6 +542,7 @@ impl Parser {
     ///     let command = std::process::Command::new(prog).args(args);
     /// }
     /// # _ => (), }} Ok(()) }
+    /// ```
     pub fn raw_args(&mut self) -> Result<RawArgs<'_>, Error> {
         if let Some(value) = self.optional_value() {
             return Err(Error::UnexpectedValue {
