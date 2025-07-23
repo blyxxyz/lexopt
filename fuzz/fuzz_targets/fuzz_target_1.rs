@@ -16,6 +16,11 @@ fuzz_target!(|data: &[u8]| {
     } else {
         decisions = 0;
     }
+    let mut set_short_equals = true;
+    if data.len() >= 1 {
+        set_short_equals = data[0] % 2 == 0;
+        data = &data[1..];
+    }
     let data: Vec<_> = data
         // Arguments can't contain null bytes (on Unix) so it's a
         // reasonable separator
@@ -24,6 +29,7 @@ fuzz_target!(|data: &[u8]| {
         .map(OsString::from_vec)
         .collect();
     let mut p = lexopt::Parser::from_args(data);
+    p.set_short_equals(set_short_equals);
     loop {
         // 0 -> Parser::next()
         // 1 -> Parser::value()
