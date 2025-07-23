@@ -94,6 +94,7 @@ The following conventions are supported:
 - Long options (`--verbose`)
 - `--` to mark the end of options
 - `=` to separate options from values (`--option=value`, `-o=value`)
+  - The nonstandard `-o=value` syntax can be [disabled](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.set_short_equals).
 - Spaces to separate options from values (`--option value`, `-o value`)
 - Unseparated short options (`-ovalue`)
 - Combined short options (`-abc` to mean `-a -b -c`)

@@ -1,3 +1,9 @@
+## 0.3.2 (unreleased)
+
+New:
+
+- Add `Parser::set_short_equals()` to optionally disable the nonstandard `-o=value` syntax.
+
 ## 0.3.1 (2025-03-31)
 
 New:
@@ -62,4 +68,5 @@ Bug fixes:
 - Include `bin_name` in `Parser`'s `Debug` output.
 
 ## 0.1.0 (2021-07-16)
+
 Initial release.

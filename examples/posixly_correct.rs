@@ -10,11 +10,15 @@
 //!
 //! Note that most modern software doesn't follow POSIX's rule and allows
 //! options anywhere (as long as they come before "--").
+//!
+//! [`short_equals`][lexopt::Parser::set_short_equals] also diverges
+//! from POSIX (but is otherwise unrelated).
 
 fn main() -> Result<(), lexopt::Error> {
     use lexopt::prelude::*;
 
     let mut parser = lexopt::Parser::from_env();
+    parser.set_short_equals(false);
     let mut free = Vec::new();
     while let Some(arg) = parser.next()? {
         match arg {

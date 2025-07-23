@@ -105,6 +105,7 @@ pub struct Parser {
     last_option: LastOption,
     /// The name of the command (argv\[0\]).
     bin_name: Option<String>,
+    short_equals: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -184,10 +185,11 @@ impl Parser {
                     }
                     // If we find "-=[...]" we interpret it as an option.
                     // If we find "-o=..." then there's an unexpected value.
-                    // ('-=' as an option exists, see https://linux.die.net/man/1/a2ps.)
+                    // ('-=' as an option exists, see https://linux.die.net/man/1/a2ps.
+                    // Though if you have one you should maybe disable short_equals.)
                     // clap always interprets it as a short flag in this case, but
                     // that feels sloppy.
-                    Ok(Some('=')) if *pos > 1 => {
+                    Ok(Some('=')) if *pos > 1 && self.short_equals => {
                         return Err(Error::UnexpectedValue {
                             option: self.format_last_option().unwrap(),
                             value: self.optional_value().unwrap(),
@@ -215,7 +217,7 @@ impl Parser {
                 Ok(None) => {
                     self.state = State::None;
                 }
-                Ok(Some('=')) if *pos > 1 => {
+                Ok(Some('=')) if *pos > 1 && self.short_equals => {
                     return Err(Error::UnexpectedValue {
                         option: self.format_last_option().unwrap(),
                         value: self.optional_value().unwrap(),
@@ -430,6 +432,9 @@ impl Parser {
     /// An equals sign (`=`) will limit this to a single value. That means `-a=b c` and
     /// `--opt=b c` will only yield `"b"` while `-a b c`, `-ab c` and `--opt b c` will
     /// yield `"b"`, `"c"`.
+    ///
+    /// (If [`short_equals`](Self::set_short_equals) is disabled then `-a=b c` will yield
+    /// `"=b"`, `"c"`.)
     ///
     /// # Errors
     /// If not at least one value is found then [`Error::MissingValue`] is returned.
@@ -663,7 +668,7 @@ impl Parser {
                     return None;
                 }
                 let mut had_eq_sign = false;
-                if arg[pos] == b'=' {
+                if arg[pos] == b'=' && self.short_equals {
                     // -o=value.
                     // clap actually strips out all leading '='s, but that seems silly.
                     // We allow `-xo=value`. Python's argparse doesn't strip the = in that case.
@@ -688,7 +693,7 @@ impl Parser {
                     return None;
                 }
                 let mut had_eq_sign = false;
-                if arg[pos] == b'=' as u16 {
+                if arg[pos] == b'=' as u16 && self.short_equals {
                     pos += 1;
                     had_eq_sign = true;
                 }
@@ -712,6 +717,7 @@ impl Parser {
                 Ok(text) => text,
                 Err(text) => text.to_string_lossy().into_owned(),
             }),
+            short_equals: true,
         }
     }
 
@@ -773,6 +779,54 @@ impl Parser {
             LastOption::Long(ref option) => Arg::Long(&option[2..]),
             _ => unreachable!(),
         }
+    }
+
+    /// Configure whether to parse an equals sign (`=`) for short options.
+    ///
+    /// If this is **true** (the default), `-o=foobar` will be interpreted as
+    /// the option `-o` with the value `foobar`.
+    ///
+    /// If this is **false**, `-o=foobar` will be interpreted as
+    /// the option `-o` with the value `=foobar`.
+    ///
+    /// Note that even if this is `true` the equals sign is optional. That is,
+    /// `-ofoobar` and `-o foobar` are always interpreted as `-o` with the value
+    /// `foobar` regardless of this setting.
+    ///
+    /// Most other argument parsers treat the equals sign as part of the value,
+    /// but the syntax is notably accepted by [`clap`](https://docs.rs/clap/latest/clap/)
+    /// and by Python's [`argparse`](https://docs.python.org/3/library/argparse.html).
+    ///
+    /// You may want to disable this setting if it's common for an option's value
+    /// to start with an equals sign. The Unix `cut` command for example is sometimes
+    /// used with `-d=`, where `"="` is the value belonging to the `-d` option. By default
+    /// the empty string `""` is parsed instead.
+    ///
+    /// # Example
+    ///
+    /// You can configure this right after creating the parser:
+    /// ```
+    /// let mut parser = lexopt::Parser::from_env();
+    /// parser.set_short_equals(false);
+    /// ```
+    ///
+    /// You could also do it temporarily, for an individual option:
+    /// ```
+    /// # fn main() -> Result<(), lexopt::Error> {
+    /// # use lexopt::prelude::*;
+    /// # let mut parser = lexopt::Parser::from_args(&["-d=", "key=value"]);
+    /// # let mut delimiter = None;
+    /// # while let Some(arg) = parser.next()? {
+    /// # match arg {
+    /// Short('d') | Long("delimiter") => {
+    ///     parser.set_short_equals(false);
+    ///     delimiter = Some(parser.value()?.string()?);
+    ///     parser.set_short_equals(true);
+    /// }
+    /// # _ => (), }} Ok(()) }
+    /// ```
+    pub fn set_short_equals(&mut self, on: bool) {
+        self.short_equals = on;
     }
 }
 
@@ -1512,6 +1566,156 @@ mod tests {
             Some("a".into())
         );
         assert!(p.next()?.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn short_opt_equals_sign_disabled() -> Result<(), Error> {
+        let mut p = parse("-d= -d=value -dvalue -d");
+        p.set_short_equals(false);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.value()?, "=");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.value()?, "=value");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.value()?, "value");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(
+            p.value().unwrap_err().to_string(),
+            "missing argument for option '-d'"
+        );
+
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-d= -d=value -dvalue -d");
+        p.set_short_equals(false);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.optional_value().unwrap(), "=");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.optional_value().unwrap(), "=value");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.optional_value().unwrap(), "value");
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+
+        assert_eq!(p.optional_value(), None);
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-d= -d=v -dv -d -=");
+        p.set_short_equals(false);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.next()?.unwrap(), Short('='));
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        assert_eq!(p.next()?.unwrap(), Short('v'));
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.next()?.unwrap(), Short('v'));
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+
+        assert_eq!(p.next()?.unwrap(), Short('='));
+
+        assert_eq!(p.next()?, None);
+
+        let mut p = parse("-d 1 2 -d1 2 -d=1 2 -d=");
+        p.set_short_equals(false);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.values()?.collect::<Vec<_>>(), &["1", "2"]);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.values()?.collect::<Vec<_>>(), &["1", "2"]);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.values()?.collect::<Vec<_>>(), &["=1", "2"]);
+
+        assert_eq!(p.next()?.unwrap(), Short('d'));
+        assert_eq!(p.values()?.collect::<Vec<_>>(), &["="]);
+
+        assert_eq!(p.next()?, None);
+
+        // Windows has a separate codepath for invalid Unicode.
+        #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p1")))]
+        {
+            let mut p = Parser::from_args(&[
+                bad_string("-d=@"),
+                bad_string("-d=@"),
+                bad_string("-d=@"),
+                bad_string("-d=@"),
+                bad_string("@"),
+                bad_string("-@"),
+            ]);
+            p.set_short_equals(false);
+            assert_eq!(p.next()?.unwrap(), Short('d'));
+            assert_eq!(p.next()?.unwrap(), Short('='));
+            assert_eq!(p.next()?.unwrap(), Short('�'));
+
+            assert_eq!(p.next()?.unwrap(), Short('d'));
+            assert_eq!(p.value()?, bad_output_string("=@"));
+
+            assert_eq!(p.next()?.unwrap(), Short('d'));
+            assert_eq!(p.optional_value(), Some(bad_output_string("=@")));
+
+            assert_eq!(p.next()?.unwrap(), Short('d'));
+            assert_eq!(
+                p.values()?.collect::<Vec<_>>(),
+                // First one was sliced, so sanitized on WASI (bad_output_string)
+                // Second one is passed through even on WASI (bad_string)
+                &[bad_output_string("=@"), bad_string("@")],
+            );
+
+            assert_eq!(p.next()?.unwrap(), Short('�'));
+
+            assert_eq!(p.next()?, None);
+        }
+
+        Ok(())
+    }
+
+    /// It's possible to disable this setting for a single method call.
+    /// This might break if we parse the equals sign any earlier than needed.
+    #[test]
+    fn short_opt_equals_sign_temporarily_disabled() -> Result<(), Error> {
+        let mut p = parse("-o= -o= -o= -o= -o= -o=");
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        p.set_short_equals(false);
+        assert_eq!(p.next()?.unwrap(), Short('='));
+        p.set_short_equals(true);
+
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        assert_eq!(
+            p.next().unwrap_err().to_string(),
+            r#"unexpected argument for option '-o': """#,
+        );
+
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        p.set_short_equals(false);
+        assert_eq!(p.value()?, "=");
+        p.set_short_equals(true);
+
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        assert_eq!(p.value()?, "");
+
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        p.set_short_equals(false);
+        assert_eq!(p.optional_value().unwrap(), "=");
+        p.set_short_equals(true);
+
+        assert_eq!(p.next()?.unwrap(), Short('o'));
+        assert_eq!(p.value()?, "");
+
+        assert_eq!(p.next()?, None);
 
         Ok(())
     }
