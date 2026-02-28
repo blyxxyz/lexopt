@@ -45,7 +45,7 @@ lexopt originally used option 2 but switched to option 3.
 
 Drawbacks:
 
-- Using a parser as an argument (or return value, or field) is difficult. You have to name the whole type (e.g. `Parser<std::env::ArgsOs>`), and you can't mix and match parers created from different iterators.
+- Using a parser as an argument (or return value, or field) is difficult. You have to name the whole type (e.g. `Parser<std::env::ArgsOs>`), and you can't mix and match parsers created from different iterators.
 - Code size and compile times are bloated, particularly if you use multiple iterator types.
 - The benefits are pretty weak or niche.
 
@@ -55,36 +55,32 @@ Drawbacks:
 - `Clone` can't be implemented. (Unless you exhaust the original iterator, which requires interior mutability and has bad edge cases.)
 - `Debug` can't be derived.
 
-**Option 3** (known type) would mean collecting the iterator into a `Vec` when the parser is constructed and then turning that into an iterator.
+**Option 3** (known type) means collecting the iterator into a `Vec` when the parser is constructed and then turning that into an iterator.
 
-- The biggest benefit is that `vec::IntoIter` is a well-behaved type and everything becomes easy. It's `Sync` and `Send` and `Clone` and `Debug` and `Debug` even shows the raw arguments.
+- The biggest benefit is that `vec::IntoIter` is a well-behaved type and everything becomes easy. It's `Sync` and `Send` and `Clone` and `Debug`. `Debug` even shows the raw arguments.
 - We get unlimited lookahead through `vec::IntoIter::as_slice()`.
-- `FromIterator` can be implemented.
+- `FromIterator` can be implemented. (I didn't implement it yet because I can't think of a reason to.)
 
 There are also drawbacks:
 
 - It's likely to be less efficient. But not disastrously so: `args_os()` allocates a brand-new `Vec` full of brand-new `OsString`s (each with their own allocation) before returning, and we only duplicate the `Vec` allocation.
 - Iterators can't be infinite or otherwise avoid loading all arguments into memory at once.
 - You can't use [clever tricks](https://gist.github.com/blyxxyz/06b45c82c4a4f1030a89e0289adebf09) to observe which argument is being processed.
-  - `as_slice()` might provide an alternative, but if this is to be a proper API it has to be designed carefully.
+  - [`RawArgs::as_slice()`](https://docs.rs/lexopt/latest/lexopt/struct.RawArgs.html#method.as_slice) mostly replaces this.
 
 # Configuration
-lexopt isn't configurable right now but maybe it should be.
+lexopt could not originally be configured. As of writing it has a single setting, [`set_short_equals`](https://docs.rs/lexopt/latest/lexopt/struct.Parser.html#method.set_short_equals). This setting is pretty niche but there's no way to implement it in user code.
 
-There are requests to **a)** [disable `=` for short options](https://github.com/blyxxyz/lexopt/issues/13) and **b)** [make `.value()` ignore arguments that look like options](https://github.com/blyxxyz/lexopt/issues/14).
+There's also a request to [make `.value()` ignore arguments that look like options](https://github.com/blyxxyz/lexopt/issues/14) but this can be emulated by calling `.values()` in a wacky way.
 
-Especially b) is context-sensitive. An option might need to take negative numbers as values, or arbitrary filenames. That means you might want to switch the option on/off just for the duration of parsing a single option. That rules out the builder pattern of `cfg(self) -> Self`, but not `cfg(&mut self) -> &mut Self`.
+Both settings are potentially context-sensitive. An option might need to take negative numbers as values, or arbitrary filenames. That means you might want to switch the option on/off just for the duration of parsing a single option. This is one reason that the setting was implemented as a `&mut self` method on `Parser`. However, you have to remember to revert the configuration once you're done.
 
-a) might also be context-sensitive if you e.g. want to allow it just for a particular option for backward compatibility. But this seems less likely.
+Other possible APIs are:
+- A `ParserBuilder` type that outputs a `Parser`
+- A `Config` struct that's passed to `Parser` in some way
+- A wrapper, e.g. `parser.allow_dash(false).value()` with `allow_dash() -> SomeWrapper`
 
-A footgun of `cfg(&mut self)` is that you have to remember to revert the configuration once you're done.
-
-Other possible APIs:
-- `parser.value_disallow_dash()`
-- `parser.value_cfg(Config { allow_dash: false })`
-- `parser.allow_dash(false).value()` (with `allow_dash() -> SomeWrapper`)
-
-I'm not really happy with any of these.
+I don't expect any more settings beyond `set_short_equals`. If the need does arise they can hopefully use the same signature.
 
 # Problems in other libraries
 These are all defensible design choices, they're just a bad fit for some of the programs I want to write. All of them make some other kind of program easier to write.
@@ -98,21 +94,18 @@ These are all defensible design choices, they're just a bad fit for some of the 
 
 These make the library simpler and smaller, which is the whole point.
 
-## clap/structopt
-- structopt nudges the user toward needlessly panicking on invalid unicode: even if a field has type `OsString` or `PathBuf` it'll round-trip through a unicode string and panic unless `from_os_str` is used. (I don't know if this is fixable even in theory while keeping the API ergonomic.)
-- Invalid unicode can cause a panic instead of a soft error.
-- Options with a variable number of arguments are supported, even though they're ambiguous. In structopt you need to take care not to enable this if you want an option that can occur multiple times with a single argument each time.
-- They're large, both in API surface and in code size.
+## clap
+clap is very large, both in API surface and in code size.
 
-That said, it's still my first choice for complicated interfaces.
+It also [used](https://github.com/blyxxyz/lexopt/blob/d00be2711096c088cf198650d8853b2420516be3/DESIGN.md#clapstructopt) to suffer from bad defaults for OS strings and options that take multiple values. These problems are solved in current versions. (It still doesn't nudge people toward OS strings the way lexopt does but that's very reasonable.)
 
-(I don't know how much of this applies to clap v3+ and clap-derive.)
+Despite the size and complexity it's my personal first choice for complicated interfaces.
 
 # Minimum Supported Rust Version
 The current MSRV is 1.31, the first release of the 2018 edition.
 
-The blocker for moving it even earlier is non-lexical lifetimes, there's some code that won't compile without it.
+The blocker for moving it even earlier was non-lexical lifetimes, there's some code that won't compile without it.
 
 The `Value(arg) if foo.is_none() =>` pattern doesn't actually work until 1.39 ([`bind_by_move_pattern_guards`](https://github.com/rust-lang/rust/pull/63118)), so not all of the examples compile on the MSRV. (And one of them uses `str::strip_prefix`, which requires at least 1.45.)
 
-Even Debian oldstable packages Rust 1.41 as of writing, so it's okay to relax that if there's a reason to.
+All these versions are very old. The MSRV will be raised dramatically once there is any reason to do so. Right now there isn't.
