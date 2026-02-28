@@ -1,8 +1,8 @@
-## 0.3.2 (unreleased)
+## 0.3.2 (2025-02-28)
 
 New:
 
-- Add `Parser::set_short_equals()` to optionally disable the nonstandard `-o=value` syntax.
+- Add `Parser::set_short_equals()` to opt out of the nonstandard `-o=value` syntax.
 
 ## 0.3.1 (2025-03-31)
 
